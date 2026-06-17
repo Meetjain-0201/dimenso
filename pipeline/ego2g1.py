@@ -57,16 +57,16 @@ DEFAULTS: dict[str, Any] = {
     "respawn": True,      # respawn object if it falls; set False for honest diagnostics
     "task_text": None,
     "objects": {"ball": "object", "basket": "basket"},
-    "basket_center": (0.05, 0.34),  # matches scene BASKET_CENTER (raised table, no riser)
-    "basket_floor_z": 0.80,     # cube rest level inside basket (table 0.78 + floor box 0.02)
-    "basket_rim_z": 0.87,       # wall top = TABLE_TOP 0.78 + WALL_H 0.09
+    "basket_center": (0.04, 0.34),  # matches scene BASKET_CENTER (probe-chosen, gap 0.141 m)
+    "basket_floor_z": 0.98,     # cube rest level inside basket (table 0.935 + floor box -> ~0.98)
+    "basket_rim_z": 0.985,      # wall top = TABLE_TOP 0.935 + WALL_H 0.05
     "basket_radius": 0.085,
-    "grasp_tilt": 0.5,          # 1.0=fingers fully down (singular), 0.5=reachable tilted top-down
+    "grasp_tilt": 0.5,          # clean grasp pose tilt (probe_height.py): reachable + joint-clear
     "grasp_center_frac": 0.75,  # control the finger grasp-center (this frac of palm->fingertip), not the palm
-    "approach_height": 0.16,    # grasp-centre height above cube for the "above" waypoint
-    "grasp_palm_above": 0.0,    # descend grasp-centre TO the cube centroid (was +0.04 -> sat too high)
-    "lift_z": 0.97,
-    "release_palm_z": 0.89,     # grasp-centre just above rim 0.87, then open -> cube drops in
+    "approach_height": 0.05,    # grasp-centre height above cube for the "above" waypoint (stay in reach)
+    "grasp_palm_above": 0.0,    # descend grasp-centre TO the cube centroid (z=0.96)
+    "lift_z": 1.01,             # lift grasp-centre just above the rim (0.985)
+    "release_palm_z": 1.0,      # grasp-centre above rim, then open -> cube drops into basket
     "steps_warmup": 90,
     "interp_waypoints": 60,     # fine: small EE delta per waypoint -> small joint delta (no swing)
     "steps_per_waypoint": 8,    # physics steps held per increment (less tracking lag)
@@ -406,13 +406,22 @@ def _execute(cfg, simulation_app) -> RunResult:
     in_xy = xy_off <= cfg["basket_radius"]
     in_z = (cfg["basket_floor_z"] - 0.03) <= float(bp[2]) <= (cfg["basket_rim_z"] + 0.02)
     stable = bool(stab["max_dq"] <= cfg["arm_q_delta_thresh"] and stab["max_ee_err"] <= cfg["ee_err_thresh"])
-    # grasp-held: cube must rise AND stay near the palm during lift/carry (not flung).
+    start_z = float(scene.OBJECT_POS[2])
+    # grasp-held: cube must rise AND stay locked to the grasp centre during lift/carry (not flung/left behind).
     _lr = [r for r in telem if r["phase"] in ("lift", "move_above_basket")]
     cube_z_lift = max((r["cube_pos"][2] for r in _lr), default=0.0)
-    _near = sum(1 for r in _lr if math.dist(r["cube_pos"], r["ee_pos"]) < 0.15)
-    grasp_held = bool(_lr and _near / len(_lr) > 0.6 and cube_z_lift > cfg["basket_floor_z"] + 0.05)
-    success = bool(in_xy and in_z)
+    _near = sum(1 for r in _lr if math.dist(r["cube_pos"], r["ee_pos"]) < 0.08)
+    grasp_held = bool(_lr and _near / len(_lr) > 0.7 and cube_z_lift > start_z + 0.04)
+    # --- 4-flag success verifier (all four required) ---
+    _pre = [r for r in telem if r["phase"] in ("move_above_ball", "descend_to_ball")]
+    flag_on_table = bool(_pre and min(r["cube_pos"][2] for r in _pre) > start_z - 0.05)  # cube on table pre-grasp
+    flag_held = grasp_held                                                                # locked to grasp centre
+    flag_elevated = bool(cube_z_lift > start_z + 0.04)                                    # truly lifted during carry
+    flag_in_basket = bool(in_xy and in_z and float(telem[-1]["cube_vel"]) < 0.05)         # inside bounds AND at rest
+    flags = {"on_table": flag_on_table, "held": flag_held, "elevated": flag_elevated, "in_basket_at_rest": flag_in_basket}
+    success = bool(flag_on_table and flag_held and flag_elevated and flag_in_basket and not cur["fell"])
     metrics = {
+        "flags": flags,
         "grasp_held": grasp_held, "cube_z_max_lift": round(cube_z_lift, 4),
         "object_fell": bool(cur["fell"]),
         "task_text": task_text,
@@ -431,7 +440,7 @@ def _execute(cfg, simulation_app) -> RunResult:
         "stable": stable,
     }
     msg = "cube placed in basket" if success else f"cube not in basket (xy_off={xy_off:.3f}, z={float(bp[2]):.3f})"
-    print(f"[ego2g1] RESULT success={success} | {msg}")
+    print(f"[ego2g1] RESULT success={success} | flags={flags} | {msg}")
     result = RunResult(success=success, message=msg, metrics=metrics, steps=log)
 
     if cfg.get("telemetry"):

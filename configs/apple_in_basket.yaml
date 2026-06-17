@@ -1,0 +1,34 @@
+# dimenso app config: "apple in basket"
+# Consumed by pipeline.ego2g1.run(). Coordinates are in the G1 pelvis frame (metres),
+# matching dimenso/sim/scene.py.
+
+app: apple_in_basket
+task_id: Dimenso-AppleBasket-G1-v0
+
+# Source egocentric clip (relative to repo root; lives under data/, gitignored).
+video_path: data/apple_demo.mp4
+
+# Graspable object — a red sphere "apple" (primitive, no asset download).
+object:
+  name: apple
+  kind: sphere
+  radius: 0.035          # m
+  init_pos: [-0.15, 0.50, 0.745]
+
+# Place target — an open-topped bin built from cuboid walls.
+basket:
+  name: basket
+  center: [0.20, 0.50, 0.71]
+  inner_size: [0.16, 0.16, 0.09]   # m (approx, walls are 2 cm thick)
+
+# Success: apple settles inside the basket footprint.
+target_zone:
+  center: [0.20, 0.50, 0.74]
+  radius: 0.09           # m, planar tolerance
+  z_max: 0.80            # m, must be at/below basket rim
+
+# Simulation
+sim:
+  num_envs: 1            # hardware ceiling: RTX 5060 8 GB -> single env, headless
+  headless: true
+  episode_length_s: 20.0

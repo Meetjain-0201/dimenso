@@ -95,6 +95,17 @@
       .subflow-label { font-size: 12px; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
       .subflow .note { display: block; margin: 8px 0 0; }
 
+      /* reveal toggle — button that shows/hides the VLM + code-as-policy path in place */
+      .reveal-toggle {
+        font: inherit; font-weight: 550; cursor: pointer; color: var(--text);
+        background: var(--panel); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 9px 14px; width: 100%; text-align: left;
+      }
+      .reveal-toggle:hover { border-color: var(--accent); }
+      .reveal-toggle .caret { color: var(--muted); display: inline-block; width: 1em; }
+      .reveal-panel { margin-top: 14px; }
+      .reveal-panel > .sec-title { margin-top: 18px; }
+
       /* ---- sections ---- */
       section { margin-bottom: 24px; }
       .sec-title { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
@@ -286,7 +297,7 @@
             <span>retarget + replay</span>
             <span class="badge laptop">laptop</span>
           </div>
-          <div class="opt chip">
+          <div class="opt chip selected">
             <span>imitation learning (BC)</span>
             <span class="badge laptop">laptop</span>
           </div>
@@ -304,25 +315,7 @@
             <span class="badge cloud">cloud</span>
             <span class="note">slow</span>
           </div>
-          <div class="opt chip selected">
-            <span>VLM + code-as-policy</span>
-            <span class="badge cloud">API + GPU</span>
-            <span class="note">perception-driven grasping, no training</span>
-          </div>
           <!-- add new method chips here -->
-        </div>
-
-        <!-- static method architecture sub-flow (orientation only, non-interactive) -->
-        <div class="subflow">
-          <p class="subflow-label">selected path: VLM + code-as-policy</p>
-          <div class="pipeline" aria-label="VLM + code-as-policy sub-flow">
-            <span class="stage">Gemini ER</span><span class="arrow">→</span>
-            <span class="stage">CapX</span><span class="arrow">→</span>
-            <span class="stage">GraspGen</span><span class="arrow">→</span>
-            <span class="stage">cuRobo</span><span class="arrow">→</span>
-            <span class="stage">Isaac Lab</span>
-          </div>
-          <p class="note">grasp primitive depends on hand — parallel/pinch gripper → GraspGen direct; G1 Dex3 three-finger → pinch-mode or dexterous synthesis.</p>
         </div>
       </section>
 
@@ -365,48 +358,6 @@
             </div>
             <a class="ext" href="https://github.com/isaac-sim/IsaacLab" target="_blank" rel="noopener" aria-label="open Isaac Lab repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
           </div>
-          <div class="opt card">
-            <div class="meta">
-              <div class="name">Gemini Robotics-ER 1.6</div>
-              <div class="desc">VLM brain, video → plan + points</div>
-            </div>
-            <a class="ext" href="https://ai.google.dev/gemini-api/docs/robotics-overview" target="_blank" rel="noopener" aria-label="open Gemini Robotics-ER page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
-          </div>
-          <div class="opt card">
-            <div class="meta">
-              <div class="name">CapX (code-as-policy)</div>
-              <div class="desc">task orchestration layer</div>
-            </div>
-            <a class="ext" href="https://code-as-policies.github.io" target="_blank" rel="noopener" aria-label="open CapX page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
-          </div>
-          <div class="opt card">
-            <div class="meta">
-              <div class="name">GraspGen</div>
-              <div class="desc">6-DoF grasp generation</div>
-            </div>
-            <a class="ext" href="https://github.com/NVlabs/GraspGen" target="_blank" rel="noopener" aria-label="open GraspGen repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
-          </div>
-          <div class="opt card">
-            <div class="meta">
-              <div class="name">GraspGenX</div>
-              <div class="desc">cross-embodiment grasping</div>
-            </div>
-            <a class="ext" href="https://github.com/NVlabs/GraspGenX" target="_blank" rel="noopener" aria-label="open GraspGenX repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
-          </div>
-          <div class="opt card">
-            <div class="meta">
-              <div class="name">cuRobo</div>
-              <div class="desc">GPU motion planning</div>
-            </div>
-            <a class="ext" href="https://github.com/NVlabs/curobo" target="_blank" rel="noopener" aria-label="open cuRobo repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
-          </div>
-          <div class="opt card">
-            <div class="meta">
-              <div class="name">DexGraspNet</div>
-              <div class="desc">dexterous (Dex3) grasps</div>
-            </div>
-            <a class="ext" href="https://pku-epic.github.io/DexGraspNet/" target="_blank" rel="noopener" aria-label="open DexGraspNet page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
-          </div>
           <!-- add new model / tool cards here -->
         </div>
       </section>
@@ -417,6 +368,71 @@
         <div class="locked" aria-disabled="true">
           <span>Unitree G1 · fixed base · Dex3 hand</span>
           <span class="lock">🔒 locked</span>
+        </div>
+      </section>
+
+      <!-- ===== VLM + code-as-policy path (the "second" approach — revealed by the button) ===== -->
+      <section>
+        <button class="reveal-toggle" type="button" aria-expanded="false" aria-controls="vlm-path">
+          <span class="caret">▸</span> show VLM + code-as-policy path
+        </button>
+        <div id="vlm-path" class="reveal-panel" hidden>
+          <p class="subflow-label">selected path: VLM + code-as-policy</p>
+          <div class="pipeline" aria-label="VLM + code-as-policy sub-flow">
+            <span class="stage">Gemini ER</span><span class="arrow">→</span>
+            <span class="stage">CapX</span><span class="arrow">→</span>
+            <span class="stage">GraspGen</span><span class="arrow">→</span>
+            <span class="stage">cuRobo</span><span class="arrow">→</span>
+            <span class="stage">Isaac Lab</span>
+          </div>
+          <p class="note">grasp primitive depends on hand — parallel/pinch gripper → GraspGen direct; G1 Dex3 three-finger → pinch-mode or dexterous synthesis.</p>
+
+          <p class="sec-title">VLM stack — model / tools</p>
+          <div class="options cards" data-select="single">
+            <div class="opt card selected">
+              <div class="meta">
+                <div class="name">Gemini Robotics-ER 1.6</div>
+                <div class="desc">VLM brain, video → plan + points</div>
+              </div>
+              <a class="ext" href="https://ai.google.dev/gemini-api/docs/robotics-overview" target="_blank" rel="noopener" aria-label="open Gemini Robotics-ER page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+            </div>
+            <div class="opt card">
+              <div class="meta">
+                <div class="name">CapX (code-as-policy)</div>
+                <div class="desc">task orchestration layer</div>
+              </div>
+              <a class="ext" href="https://code-as-policies.github.io" target="_blank" rel="noopener" aria-label="open CapX page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+            </div>
+            <div class="opt card">
+              <div class="meta">
+                <div class="name">GraspGen</div>
+                <div class="desc">6-DoF grasp generation</div>
+              </div>
+              <a class="ext" href="https://github.com/NVlabs/GraspGen" target="_blank" rel="noopener" aria-label="open GraspGen repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+            </div>
+            <div class="opt card">
+              <div class="meta">
+                <div class="name">GraspGenX</div>
+                <div class="desc">cross-embodiment grasping</div>
+              </div>
+              <a class="ext" href="https://github.com/NVlabs/GraspGenX" target="_blank" rel="noopener" aria-label="open GraspGenX repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+            </div>
+            <div class="opt card">
+              <div class="meta">
+                <div class="name">cuRobo</div>
+                <div class="desc">GPU motion planning</div>
+              </div>
+              <a class="ext" href="https://github.com/NVlabs/curobo" target="_blank" rel="noopener" aria-label="open cuRobo repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+            </div>
+            <div class="opt card">
+              <div class="meta">
+                <div class="name">DexGraspNet</div>
+                <div class="desc">dexterous (Dex3) grasps</div>
+              </div>
+              <a class="ext" href="https://pku-epic.github.io/DexGraspNet/" target="_blank" rel="noopener" aria-label="open DexGraspNet page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+            </div>
+            <!-- add new VLM-stack cards here -->
+          </div>
         </div>
       </section>
 
@@ -465,6 +481,21 @@
               e.preventDefault();
               selectOne(group, opt);
             }
+          });
+        });
+
+        // reveal toggle: show/hide the VLM + code-as-policy path in place (nothing executes)
+        document.querySelectorAll(".reveal-toggle").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var panel = document.getElementById(btn.getAttribute("aria-controls"));
+            if (!panel) return;
+            var willOpen = panel.hasAttribute("hidden");
+            if (willOpen) panel.removeAttribute("hidden");
+            else panel.setAttribute("hidden", "");
+            btn.setAttribute("aria-expanded", String(willOpen));
+            btn.innerHTML =
+              '<span class="caret">' + (willOpen ? "▾" : "▸") + "</span> " +
+              (willOpen ? "hide" : "show") + " VLM + code-as-policy path";
           });
         });
       })();

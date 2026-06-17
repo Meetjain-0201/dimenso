@@ -62,7 +62,8 @@ TABLE_TOP = 0.78                       # tabletop height; cube centroid lands at
 # to where the grasp centre actually lands (0.22). The arm cannot push the grasp centre below
 # ~0.806, so a lower cube gets clipped on top and knocked off; this height centres the grasp.
 OBJECT_POS = (0.13, 0.22, TABLE_TOP + OBJECT_SIZE / 2)   # grasp centre lands here: (0.13,0.22,0.805)
-BASKET_CENTER = (0.04, 0.34)           # reachable place pose; gap to cube = 0.150 m
+BASKET_CENTER = (0.0, 0.20)            # where the arm ACTUALLY carries the cube (iter12: reaches
+                                       # y~0.21, not 0.34); gap to cube (0.13,0.22) = 0.132 m (>=0.10)
 BASKET_FLOOR_Z = TABLE_TOP + 0.01      # basket floor box centre, resting on the tabletop
 BASKET_WALL_H = 0.04                   # shallow walls -> low rim (the arm can barely lift past ~0.85)
 BASKET_INNER = 0.14
@@ -130,27 +131,27 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
     # basket centred on BASKET_CENTER=(0.04,0.34); walls rest on the tabletop (TABLE_TOP)
     basket_floor = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketFloor",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.34, BASKET_FLOOR_Z)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.20, BASKET_FLOOR_Z)),
         spawn=_static_box((BASKET_INNER, BASKET_INNER, 0.02)),
     )
     basket_wall_px = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallPx",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.11, 0.34, TABLE_TOP + BASKET_WALL_H / 2)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.07, 0.20, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((0.02, BASKET_INNER, BASKET_WALL_H)),
     )
     basket_wall_nx = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallNx",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(-0.03, 0.34, TABLE_TOP + BASKET_WALL_H / 2)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(-0.07, 0.20, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((0.02, BASKET_INNER, BASKET_WALL_H)),
     )
     basket_wall_py = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallPy",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.41, TABLE_TOP + BASKET_WALL_H / 2)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.27, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((BASKET_INNER, 0.02, BASKET_WALL_H)),
     )
     basket_wall_ny = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallNy",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.27, TABLE_TOP + BASKET_WALL_H / 2)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0, 0.13, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((BASKET_INNER, 0.02, BASKET_WALL_H)),
     )
 

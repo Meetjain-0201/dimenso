@@ -57,7 +57,7 @@ DEFAULTS: dict[str, Any] = {
     "respawn": True,      # respawn object if it falls; set False for honest diagnostics
     "task_text": None,
     "objects": {"ball": "object", "basket": "basket"},
-    "basket_center": (0.04, 0.34),  # matches scene BASKET_CENTER (probe-chosen, gap 0.141 m)
+    "basket_center": (0.0, 0.20),   # matches scene BASKET_CENTER (where the arm carries to; gap 0.132 m)
     "basket_floor_z": 0.82,     # cube rest level inside basket (table 0.78 + floor box -> ~0.82)
     "basket_rim_z": 0.82,       # wall top = TABLE_TOP 0.78 + WALL_H 0.04
     "basket_radius": 0.085,

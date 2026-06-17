@@ -57,16 +57,16 @@ DEFAULTS: dict[str, Any] = {
     "respawn": True,      # respawn object if it falls; set False for honest diagnostics
     "task_text": None,
     "objects": {"ball": "object", "basket": "basket"},
-    "basket_center": (0.04, 0.32),
-    "basket_floor_z": 0.71,
-    "basket_rim_z": 0.80,
+    "basket_center": (0.05, 0.34),  # matches scene BASKET_CENTER (raised table, no riser)
+    "basket_floor_z": 0.80,     # cube rest level inside basket (table 0.78 + floor box 0.02)
+    "basket_rim_z": 0.87,       # wall top = TABLE_TOP 0.78 + WALL_H 0.09
     "basket_radius": 0.085,
     "grasp_tilt": 0.5,          # 1.0=fingers fully down (singular), 0.5=reachable tilted top-down
     "grasp_center_frac": 0.75,  # control the finger grasp-center (this frac of palm->fingertip), not the palm
-    "approach_height": 0.18,    # palm height above cube for the "above" waypoint (well clear)
-    "grasp_palm_above": 0.04,   # cube now raised on riser -> palm near cube top, reachable
-    "lift_z": 0.95,
-    "release_palm_z": 0.86,
+    "approach_height": 0.16,    # grasp-centre height above cube for the "above" waypoint
+    "grasp_palm_above": 0.0,    # descend grasp-centre TO the cube centroid (was +0.04 -> sat too high)
+    "lift_z": 0.97,
+    "release_palm_z": 0.89,     # grasp-centre just above rim 0.87, then open -> cube drops in
     "steps_warmup": 90,
     "interp_waypoints": 60,     # fine: small EE delta per waypoint -> small joint delta (no swing)
     "steps_per_waypoint": 8,    # physics steps held per increment (less tracking lag)

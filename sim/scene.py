@@ -38,6 +38,11 @@ RIGHT_HAND_JOINTS = [
     "right_hand_thumb_0_joint", "right_hand_thumb_1_joint", "right_hand_thumb_2_joint",
 ]
 EE_BODY = "right_hand_palm_link"
+# Waist (3-DOF) joins the IK chain — matches the upstream G1 pick-place task. The fixed-base
+# right arm alone maxes out its joints at every reachable grasp pose (diagnostics/PROBE.md);
+# letting the torso turn toward the table opens the workspace and relieves the arm joints.
+WAIST_JOINTS = ["waist_yaw_joint", "waist_pitch_joint", "waist_roll_joint"]
+IK_JOINTS = WAIST_JOINTS + RIGHT_ARM_JOINTS
 
 # Moderate DLS damping (default ~0.05): enough to suppress elbow-flare blow-ups on the
 # redundant 7-DOF arm (with fine interpolation) without too much tracking lag to reach.
@@ -49,10 +54,13 @@ OBJECT_SIZE = 0.05     # cube edge length, or sphere diameter
 OBJECT_MASS = 0.05     # kg
 # Probe-chosen sweet spots (diagnostics/PROBE.md): tilt-0.5 grasp is reachable + in-limits
 # in the near-arm region. Cube and basket both placed there, diagonally separated.
-RISER_TOP = 0.78   # small pedestal: lifts the cube into the arm's reachable band (~0.82 m)
-OBJECT_POS = (0.16, 0.20, RISER_TOP + OBJECT_SIZE / 2)
-BASKET_CENTER = (0.04, 0.32)
-BASKET_FLOOR_Z = 0.71
+# NO riser. The whole tabletop is raised so a 5cm cube resting on it puts the grasp
+# centre in the arm's reachable band (~0.80-0.81 m, per diagnostics/PROBE.md).
+TABLE_TOP = 0.78                       # tabletop height; cube centroid lands at 0.805
+# Cube pulled in to y=0.16 (was 0.20) for elbow (arm_joint[3]) joint-limit clearance.
+OBJECT_POS = (0.18, 0.16, TABLE_TOP + OBJECT_SIZE / 2)
+BASKET_CENTER = (0.05, 0.34)           # >=10cm from cube (gap ~0.22 m, logged at runtime)
+BASKET_FLOOR_Z = TABLE_TOP + 0.01      # basket floor box centre, resting on the tabletop
 BASKET_WALL_H = 0.09
 BASKET_INNER = 0.14
 
@@ -103,17 +111,11 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
         spawn=sim_utils.DomeLightCfg(color=(0.75, 0.75, 0.75), intensity=3000.0),
     )
 
+    # raised tabletop (top at TABLE_TOP); cube + basket both rest directly on it — no riser
     table = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Table",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.15, 0.45, 0.68)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.15, 0.45, TABLE_TOP - 0.02)),
         spawn=_static_box((0.80, 0.60, 0.04), color=(0.55, 0.40, 0.25)),
-    )
-
-    # small pedestal under the cube — raises it into the right arm's reachable band
-    riser = AssetBaseCfg(
-        prim_path="{ENV_REGEX_NS}/Riser",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.16, 0.20, 0.70 + (RISER_TOP - 0.70) / 2)),
-        spawn=_static_box((0.18, 0.18, RISER_TOP - 0.70), color=(0.45, 0.45, 0.50)),
     )
 
     object = RigidObjectCfg(
@@ -122,29 +124,30 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
         spawn=_object_spawn(),
     )
 
+    # basket centred on BASKET_CENTER=(0.05,0.34); walls rest on the tabletop (TABLE_TOP)
     basket_floor = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketFloor",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.32, BASKET_FLOOR_Z)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.05, 0.34, BASKET_FLOOR_Z)),
         spawn=_static_box((BASKET_INNER, BASKET_INNER, 0.02)),
     )
     basket_wall_px = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallPx",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.11, 0.32, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.12, 0.34, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((0.02, BASKET_INNER, BASKET_WALL_H)),
     )
     basket_wall_nx = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallNx",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(-0.03, 0.32, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(-0.02, 0.34, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((0.02, BASKET_INNER, BASKET_WALL_H)),
     )
     basket_wall_py = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallPy",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.39, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.05, 0.41, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((BASKET_INNER, 0.02, BASKET_WALL_H)),
     )
     basket_wall_ny = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallNy",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.25, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.05, 0.27, TABLE_TOP + BASKET_WALL_H / 2)),
         spawn=_static_box((BASKET_INNER, 0.02, BASKET_WALL_H)),
     )
 
@@ -184,7 +187,7 @@ class ActionsCfg:
 
     arm_ik = mdp.DifferentialInverseKinematicsActionCfg(
         asset_name="robot",
-        joint_names=RIGHT_ARM_JOINTS,
+        joint_names=IK_JOINTS,
         body_name=EE_BODY,
         controller=DifferentialIKControllerCfg(
             command_type="pose", use_relative_mode=False, ik_method="dls",

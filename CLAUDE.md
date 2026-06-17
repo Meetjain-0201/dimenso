@@ -187,10 +187,10 @@ cube_knocked/cube_fell/palm_short/near_singular/grasp_empty/slip/release_miss), 
 `ITERATION_LOG.md`, `REPORT.md`, `telemetry/`, `replays/`.
 
 ## Pick-and-place status (native DiffIK)
-Carry/approach/stability SOLVED (no jitter, no singular, no fling — `stable=True`). Probe proved
-full fingers-down is singular everywhere → use **tilt≈0.5** top-down grasp in the near-arm
-reachable band. Fixed-base G1 right arm only reaches grasp poses down to palm-z≈0.80–0.82 →
-cube **raised on a riser (top 0.78)** to bridge the gap. **Remaining:** grasp closure — IK targets
-the palm link but the Dex3 grasp center is ~5–6 cm further out, so the cube sits just outside the
-fingers. Next: add an IK `body_offset` to control the grasp center. Full data in `diagnostics/REPORT.md`.
-Pink IK remains blocked (Isaac Lab #4090) — do NOT use it.
+KEY FINDING: arm-only DiffIK maxes out joints at EVERY reachable grasp pose — reach⟺joint-limit,
+no clean operating point (`diagnostics/PROBE*.md`). FIX (in-constraints): added **waist_yaw/pitch/roll
+to the IK chain** (`IK_JOINTS` in scene.py, matches upstream) — torso turns to the table, arm relieved.
+Clean grasp unlocked: cube=(0.14,0.24,**0.96**), tilt 0.5 → err 2 mm, elbow +0.176 rad margin.
+NO riser; table raised to top 0.935. Basket (0.04,0.34), gap 0.141 m. 4-flag verifier
+(on_table/held/elevated/in_basket_at_rest) in `pipeline/ego2g1.py`. Live cube tracking + respawn ON.
+Pink IK / cuRobo / GraspGen remain blocked — native DiffIK only. Full data in `diagnostics/REPORT.md`.

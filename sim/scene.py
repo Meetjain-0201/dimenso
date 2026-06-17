@@ -57,11 +57,14 @@ OBJECT_MASS = 0.05     # kg
 # NO riser. The whole tabletop is raised so a 5cm cube resting on it puts the grasp
 # centre at z=0.96 — the ONE clean pose (reachable + all arm joints >0.15 rad clear +
 # non-singular) found by diagnostics/probe_height.py once the waist DoF joined the IK.
-TABLE_TOP = 0.935                      # tabletop height; cube centroid lands at 0.96
-OBJECT_POS = (0.14, 0.24, TABLE_TOP + OBJECT_SIZE / 2)   # probe-chosen clean grasp pose
-BASKET_CENTER = (0.04, 0.34)           # probe-chosen reachable place pose; gap to cube = 0.141 m
+TABLE_TOP = 0.78                       # tabletop height; cube centroid lands at 0.805
+# Cube sits AT the grasp-centre's low reach floor (~0.806, from iter9 telemetry) and aligned in y
+# to where the grasp centre actually lands (0.22). The arm cannot push the grasp centre below
+# ~0.806, so a lower cube gets clipped on top and knocked off; this height centres the grasp.
+OBJECT_POS = (0.13, 0.22, TABLE_TOP + OBJECT_SIZE / 2)   # grasp centre lands here: (0.13,0.22,0.805)
+BASKET_CENTER = (0.04, 0.34)           # reachable place pose; gap to cube = 0.150 m
 BASKET_FLOOR_Z = TABLE_TOP + 0.01      # basket floor box centre, resting on the tabletop
-BASKET_WALL_H = 0.05                   # short walls -> low rim, so carry-over stays in reach
+BASKET_WALL_H = 0.04                   # shallow walls -> low rim (the arm can barely lift past ~0.85)
 BASKET_INNER = 0.14
 
 _HIGH_FRICTION = sim_utils.RigidBodyMaterialCfg(

@@ -58,15 +58,15 @@ DEFAULTS: dict[str, Any] = {
     "task_text": None,
     "objects": {"ball": "object", "basket": "basket"},
     "basket_center": (0.04, 0.34),  # matches scene BASKET_CENTER (probe-chosen, gap 0.141 m)
-    "basket_floor_z": 0.98,     # cube rest level inside basket (table 0.935 + floor box -> ~0.98)
-    "basket_rim_z": 0.985,      # wall top = TABLE_TOP 0.935 + WALL_H 0.05
+    "basket_floor_z": 0.82,     # cube rest level inside basket (table 0.78 + floor box -> ~0.82)
+    "basket_rim_z": 0.82,       # wall top = TABLE_TOP 0.78 + WALL_H 0.04
     "basket_radius": 0.085,
-    "grasp_tilt": 0.5,          # clean grasp pose tilt (probe_height.py): reachable + joint-clear
+    "grasp_tilt": 0.5,          # reachable + joint-clear tilted top-down grasp
     "grasp_center_frac": 0.75,  # control the finger grasp-center (this frac of palm->fingertip), not the palm
-    "approach_height": 0.05,    # grasp-centre height above cube for the "above" waypoint (stay in reach)
-    "grasp_palm_above": 0.0,    # descend grasp-centre TO the cube centroid (z=0.96)
-    "lift_z": 1.01,             # lift grasp-centre just above the rim (0.985)
-    "release_palm_z": 1.0,      # grasp-centre above rim, then open -> cube drops into basket
+    "approach_height": 0.04,    # grasp-centre height above cube for the "above" waypoint (stay in reach)
+    "grasp_palm_above": 0.0,    # descend grasp-centre to the cube centroid (gc floors at ~0.806 = cube z)
+    "lift_z": 0.86,             # lift grasp-centre above the rim (0.82) — near the arm's lift ceiling
+    "release_palm_z": 0.85,     # grasp-centre above rim, then open -> cube drops into basket
     "steps_warmup": 90,
     "interp_waypoints": 60,     # fine: small EE delta per waypoint -> small joint delta (no swing)
     "steps_per_waypoint": 8,    # physics steps held per increment (less tracking lag)

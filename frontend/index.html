@@ -1,35 +1,473 @@
 <!doctype html>
-<!-- dimenso local control panel — P4 stub. No styling polish; structure only. -->
-<!-- Talks to server/app.py: GET /apps, GET /videos, POST /run. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>dimenso — control panel (P4 stub)</title>
+    <title>dimenso — control panel</title>
+
+    <!--
+      dimenso control panel — STATIC front end only.
+      No backend, no server calls, no pipeline logic. Selecting an option just
+      highlights it (JS toggles a `selected` class); nothing executes.
+      Single self-contained file: inline CSS + vanilla JS, no build step, no frameworks.
+    -->
+
+    <style>
+      /* Colors via custom properties so the panel survives light AND dark backgrounds.
+         Text never hardcodes black/white — it always uses var(--text)/var(--muted). */
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --panel: #f5f6f8;
+        --panel-2: #eef0f4;
+        --border: #d7dae2;
+        --text: #1b1e26;
+        --muted: #6b7280;
+        --accent: #3f7bf0;
+        --accent-soft: rgba(63, 123, 240, 0.12);
+        --laptop: #1f9d61;
+        --laptop-soft: rgba(31, 157, 97, 0.14);
+        --cloud: #c8801c;
+        --cloud-soft: rgba(200, 128, 28, 0.14);
+        --radius: 10px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1116;
+          --panel: #171a21;
+          --panel-2: #1d212a;
+          --border: #2b3140;
+          --text: #e7e9ef;
+          --muted: #98a1b2;
+          --accent: #5e98ff;
+          --accent-soft: rgba(94, 152, 255, 0.16);
+          --laptop: #38c485;
+          --laptop-soft: rgba(56, 196, 133, 0.16);
+          --cloud: #e2a33f;
+          --cloud-soft: rgba(226, 163, 63, 0.16);
+        }
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; }
+
+      a { color: var(--accent); }
+
+      /* ---- header ---- */
+      header.top {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
+      }
+      .brand h1 { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+      .brand p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+      .status { display: flex; gap: 8px; flex-wrap: wrap; }
+      .status-pill {
+        border: 1px solid var(--border); border-radius: var(--radius);
+        background: var(--panel); padding: 7px 11px; min-width: 0;
+      }
+      .status-pill .k { font-size: 13px; font-weight: 550; }
+      .status-pill .v { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+      .status-pill.laptop { border-color: var(--laptop); background: var(--laptop-soft); }
+      .status-pill.cloud { border-color: var(--cloud); background: var(--cloud-soft); }
+
+      /* ---- pipeline strip (orientation only, non-interactive) ---- */
+      .pipeline {
+        display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+        padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);
+        background: var(--panel); margin-bottom: 26px;
+      }
+      .pipeline .stage {
+        font-size: 12.5px; color: var(--text);
+        background: var(--panel-2); border: 1px solid var(--border);
+        border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+      }
+      .pipeline .arrow { color: var(--muted); font-size: 13px; user-select: none; }
+
+      /* method architecture sub-flow — reuses .pipeline pill styling, always visible */
+      .subflow { margin-top: 14px; }
+      .subflow-label { font-size: 12px; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
+      .subflow .note { display: block; margin: 8px 0 0; }
+
+      /* ---- sections ---- */
+      section { margin-bottom: 24px; }
+      .sec-title { font-size: 13px; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+
+      .options { display: flex; flex-wrap: wrap; gap: 8px; }
+      .options.cards { flex-direction: column; }
+
+      /* shared selectable item */
+      .opt {
+        border: 1px solid var(--border); background: var(--panel);
+        border-radius: var(--radius); cursor: pointer; color: var(--text);
+        transition: border-color .12s, background .12s;
+      }
+      .opt:hover { border-color: var(--accent); }
+      .opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .opt.selected { border-color: var(--accent); background: var(--accent-soft); }
+      .opt.selected::after { content: "✓"; color: var(--accent); font-size: 12px; margin-left: 6px; }
+
+      /* chip variant */
+      .chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 14px; }
+
+      /* card variant */
+      .card {
+        display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+      }
+      .card .meta { flex: 1; min-width: 0; }
+      .card .name { font-size: 14.5px; font-weight: 550; }
+      .card .desc { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+      .card.selected::after { align-self: center; }
+
+      /* tags / badges */
+      .tag {
+        font-size: 11px; color: var(--muted); border: 1px solid var(--border);
+        border-radius: 6px; padding: 1px 6px; background: var(--panel-2);
+      }
+      .badge { font-size: 11px; border-radius: 6px; padding: 1px 7px; font-weight: 550; }
+      .badge.laptop { color: var(--laptop); background: var(--laptop-soft); border: 1px solid var(--laptop); }
+      .badge.cloud { color: var(--cloud); background: var(--cloud-soft); border: 1px solid var(--cloud); }
+      .note { font-size: 11.5px; color: var(--muted); font-style: italic; }
+
+      /* external-link icon — opens URL in a new tab; does NOT select the card */
+      a.ext {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 28px; height: 28px; border-radius: 8px; flex: none;
+        border: 1px solid var(--border); color: var(--muted); text-decoration: none;
+      }
+      a.ext:hover { color: var(--accent); border-color: var(--accent); }
+      a.ext .ico { width: 14px; height: 14px; }
+
+      /* locked / non-selectable pill */
+      .locked {
+        display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+        border: 1px dashed var(--border); border-radius: var(--radius);
+        background: var(--panel); color: var(--text); font-size: 14px;
+      }
+      .locked .lock { color: var(--muted); font-size: 12px; }
+
+      /* ---- footer ---- */
+      .footer { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 30px; }
+      .run-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      button.run {
+        font: inherit; font-weight: 550; padding: 9px 16px; border-radius: var(--radius);
+        border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      }
+      button.run:disabled { opacity: 0.5; cursor: not-allowed; }
+      .run-note { color: var(--muted); font-size: 13px; }
+      .logbox {
+        margin-top: 14px; border: 1px solid var(--border); border-radius: var(--radius);
+        background: var(--panel-2); color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 12.5px; padding: 12px 14px; min-height: 64px; white-space: pre-wrap;
+      }
+    </style>
   </head>
+
   <body>
-    <h1>dimenso control panel</h1>
-    <p>Egocentric video → Unitree G1 pick-and-place. (P4 stub — not wired up.)</p>
+    <!-- external-link icon defined once; referenced by each card via <use> -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="ico-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 4h6v6" />
+        <path d="M20 4l-9 9" />
+        <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+      </symbol>
+    </svg>
 
-    <label for="app">App config</label>
-    <select id="app"><!-- populated from GET /apps --></select>
+    <div class="wrap">
+      <!-- ===== header ===== -->
+      <header class="top">
+        <div class="brand">
+          <h1>dimenso</h1>
+          <p>egocentric video → Unitree G1 in Isaac Lab</p>
+        </div>
+        <div class="status">
+          <!-- display only, not selectable -->
+          <div class="status-pill laptop">
+            <span class="k">laptop · RTX 5060 8GB</span>
+            <span class="v">sim + panel</span>
+          </div>
+          <div class="status-pill cloud">
+            <span class="k">cloud GPU 24GB+</span>
+            <span class="v">training</span>
+          </div>
+        </div>
+      </header>
 
-    <label for="video">Egocentric video</label>
-    <select id="video"><!-- populated from GET /videos --></select>
+      <!-- ===== pipeline strip (orientation only, non-interactive) ===== -->
+      <div class="pipeline" aria-label="pipeline stages">
+        <span class="stage">dataset</span><span class="arrow">→</span>
+        <span class="stage">perception</span><span class="arrow">→</span>
+        <span class="stage">retarget</span><span class="arrow">→</span>
+        <span class="stage">model</span><span class="arrow">→</span>
+        <span class="stage">train</span><span class="arrow">→</span>
+        <span class="stage">deploy</span><span class="arrow">→</span>
+        <span class="stage">Isaac Lab</span>
+      </div>
 
-    <button id="run" type="button">Run</button>
+      <!-- ===== application ===== -->
+      <section>
+        <p class="sec-title">application</p>
+        <div class="options" data-select="single">
+          <div class="opt chip selected">
+            <span>apple → basket</span>
+            <span class="note">pick &amp; place, fixed base</span>
+            <span class="tag">P1</span>
+          </div>
+          <div class="opt chip">
+            <span>tray: table A → table B</span>
+            <span class="note">loco-manipulation</span>
+            <span class="tag">later</span>
+          </div>
+          <!-- add new application chips here -->
+        </div>
+      </section>
 
-    <h2>Log</h2>
-    <pre id="log" style="border: 1px solid #ccc; min-height: 8rem; padding: 0.5rem;"></pre>
+      <!-- ===== dataset (egocentric source) ===== -->
+      <section>
+        <p class="sec-title">dataset (egocentric source)</p>
+        <div class="options cards" data-select="single">
+          <div class="opt card selected">
+            <div class="meta">
+              <div class="name">PH2D</div>
+              <div class="desc">Vision Pro, ships HAT model</div>
+            </div>
+            <a class="ext" href="https://human-as-robot.github.io" target="_blank" rel="noopener" aria-label="open PH2D page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">EgoDex</div>
+              <div class="desc">Apple, 829h, 3D hand pose</div>
+            </div>
+            <a class="ext" href="https://github.com/apple/ml-egodex" target="_blank" rel="noopener" aria-label="open EgoDex page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">Ego-Exo4D</div>
+              <div class="desc">Meta, ego + exo</div>
+            </div>
+            <a class="ext" href="https://ego-exo4d-data.org" target="_blank" rel="noopener" aria-label="open Ego-Exo4D page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">EPIC-KITCHENS-100</div>
+              <div class="desc">egocentric kitchen</div>
+            </div>
+            <a class="ext" href="https://epic-kitchens.github.io" target="_blank" rel="noopener" aria-label="open EPIC-KITCHENS-100 page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">HOI4D</div>
+              <div class="desc">has object pose</div>
+            </div>
+            <a class="ext" href="https://hoi4d.github.io" target="_blank" rel="noopener" aria-label="open HOI4D page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">DexYCB</div>
+              <div class="desc">object meshes, multi-cam (non-ego)</div>
+            </div>
+            <a class="ext" href="https://dex-ycb.github.io" target="_blank" rel="noopener" aria-label="open DexYCB page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <!-- add new dataset cards here -->
+        </div>
+      </section>
+
+      <!-- ===== method ===== -->
+      <section>
+        <p class="sec-title">method</p>
+        <div class="options" data-select="single">
+          <div class="opt chip">
+            <span>retarget + replay</span>
+            <span class="badge laptop">laptop</span>
+          </div>
+          <div class="opt chip">
+            <span>imitation learning (BC)</span>
+            <span class="badge laptop">laptop</span>
+          </div>
+          <div class="opt chip">
+            <span>VLA fine-tune</span>
+            <span class="badge cloud">cloud</span>
+          </div>
+          <div class="opt chip">
+            <span>VLA zero-shot</span>
+            <span class="badge cloud">cloud</span>
+            <span class="note">unreliable</span>
+          </div>
+          <div class="opt chip">
+            <span>reinforcement learning</span>
+            <span class="badge cloud">cloud</span>
+            <span class="note">slow</span>
+          </div>
+          <div class="opt chip selected">
+            <span>VLM + code-as-policy</span>
+            <span class="badge cloud">API + GPU</span>
+            <span class="note">perception-driven grasping, no training</span>
+          </div>
+          <!-- add new method chips here -->
+        </div>
+
+        <!-- static method architecture sub-flow (orientation only, non-interactive) -->
+        <div class="subflow">
+          <p class="subflow-label">selected path: VLM + code-as-policy</p>
+          <div class="pipeline" aria-label="VLM + code-as-policy sub-flow">
+            <span class="stage">Gemini ER</span><span class="arrow">→</span>
+            <span class="stage">CapX</span><span class="arrow">→</span>
+            <span class="stage">GraspGen</span><span class="arrow">→</span>
+            <span class="stage">cuRobo</span><span class="arrow">→</span>
+            <span class="stage">Isaac Lab</span>
+          </div>
+          <p class="note">grasp primitive depends on hand — parallel/pinch gripper → GraspGen direct; G1 Dex3 three-finger → pinch-mode or dexterous synthesis.</p>
+        </div>
+      </section>
+
+      <!-- ===== model / tools ===== -->
+      <section>
+        <p class="sec-title">model / tools</p>
+        <div class="options cards" data-select="single">
+          <div class="opt card selected">
+            <div class="meta">
+              <div class="name">GR00T N1.7</div>
+              <div class="desc">VLA, G1 finetune+deploy</div>
+            </div>
+            <a class="ext" href="https://github.com/NVIDIA/Isaac-GR00T" target="_blank" rel="noopener" aria-label="open GR00T N1.7 repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">HAT (PH2D)</div>
+              <div class="desc">human → humanoid policy</div>
+            </div>
+            <a class="ext" href="https://human-as-robot.github.io" target="_blank" rel="noopener" aria-label="open HAT page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">dex-retargeting</div>
+              <div class="desc">hand → robot joints</div>
+            </div>
+            <a class="ext" href="https://github.com/dexsuite/dex-retargeting" target="_blank" rel="noopener" aria-label="open dex-retargeting repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">MediaPipe Hands</div>
+              <div class="desc">2D/3D hand landmarks</div>
+            </div>
+            <a class="ext" href="https://github.com/google-ai-edge/mediapipe" target="_blank" rel="noopener" aria-label="open MediaPipe repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">Isaac Lab Mimic</div>
+              <div class="desc">in-sim demo gen</div>
+            </div>
+            <a class="ext" href="https://github.com/isaac-sim/IsaacLab" target="_blank" rel="noopener" aria-label="open Isaac Lab repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">Gemini Robotics-ER 1.6</div>
+              <div class="desc">VLM brain, video → plan + points</div>
+            </div>
+            <a class="ext" href="https://ai.google.dev/gemini-api/docs/robotics-overview" target="_blank" rel="noopener" aria-label="open Gemini Robotics-ER page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">CapX (code-as-policy)</div>
+              <div class="desc">task orchestration layer</div>
+            </div>
+            <a class="ext" href="https://code-as-policies.github.io" target="_blank" rel="noopener" aria-label="open CapX page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">GraspGen</div>
+              <div class="desc">6-DoF grasp generation</div>
+            </div>
+            <a class="ext" href="https://github.com/NVlabs/GraspGen" target="_blank" rel="noopener" aria-label="open GraspGen repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">GraspGenX</div>
+              <div class="desc">cross-embodiment grasping</div>
+            </div>
+            <a class="ext" href="https://github.com/NVlabs/GraspGenX" target="_blank" rel="noopener" aria-label="open GraspGenX repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">cuRobo</div>
+              <div class="desc">GPU motion planning</div>
+            </div>
+            <a class="ext" href="https://github.com/NVlabs/curobo" target="_blank" rel="noopener" aria-label="open cuRobo repo in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <div class="opt card">
+            <div class="meta">
+              <div class="name">DexGraspNet</div>
+              <div class="desc">dexterous (Dex3) grasps</div>
+            </div>
+            <a class="ext" href="https://pku-epic.github.io/DexGraspNet/" target="_blank" rel="noopener" aria-label="open DexGraspNet page in new tab"><svg class="ico"><use href="#ico-ext" /></svg></a>
+          </div>
+          <!-- add new model / tool cards here -->
+        </div>
+      </section>
+
+      <!-- ===== robot (locked) ===== -->
+      <section>
+        <p class="sec-title">robot</p>
+        <div class="locked" aria-disabled="true">
+          <span>Unitree G1 · fixed base · Dex3 hand</span>
+          <span class="lock">🔒 locked</span>
+        </div>
+      </section>
+
+      <!-- ===== footer ===== -->
+      <div class="footer">
+        <div class="run-row">
+          <button class="run" type="button" disabled>run pipeline</button>
+          <span class="run-note">front end only — pipeline not wired yet</span>
+        </div>
+        <div class="logbox" role="status" aria-live="polite">Awaiting wiring…</div>
+      </div>
+    </div>
 
     <script>
-      // P4: fetch /apps and /videos to fill the dropdowns, POST /run on click,
-      // stream the result into #log. Left unimplemented for the P1 scaffold.
-      const API = "http://127.0.0.1:8000";
-      const log = (m) => (document.getElementById("log").textContent += m + "\n");
-      document.getElementById("run").addEventListener("click", () => {
-        log("[stub] would POST " + API + "/run — implemented in P4.");
-      });
+      // Single-select per section. Selecting toggles a `selected` class only —
+      // nothing executes, nothing navigates (except the external-link icon).
+      (function () {
+        function selectOne(group, opt) {
+          group.querySelectorAll(".opt").forEach(function (o) {
+            o.classList.remove("selected");
+            o.setAttribute("aria-pressed", "false");
+          });
+          opt.classList.add("selected");
+          opt.setAttribute("aria-pressed", "true");
+        }
+
+        document.querySelectorAll('[data-select="single"]').forEach(function (group) {
+          // make options behave like buttons (keyboard + a11y)
+          group.querySelectorAll(".opt").forEach(function (o) {
+            o.setAttribute("role", "button");
+            o.setAttribute("tabindex", "0");
+            o.setAttribute("aria-pressed", o.classList.contains("selected") ? "true" : "false");
+          });
+
+          group.addEventListener("click", function (e) {
+            // external-link icon: let it open in a new tab, do not select
+            if (e.target.closest("a.ext")) return;
+            var opt = e.target.closest(".opt");
+            if (opt && group.contains(opt)) selectOne(group, opt);
+          });
+
+          group.addEventListener("keydown", function (e) {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            var opt = e.target.closest(".opt");
+            if (opt && group.contains(opt)) {
+              e.preventDefault();
+              selectOne(group, opt);
+            }
+          });
+        });
+      })();
     </script>
   </body>
 </html>

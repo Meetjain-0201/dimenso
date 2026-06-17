@@ -192,9 +192,8 @@ no clean operating point (`diagnostics/PROBE*.md`). FIX (in-constraints): added 
 to the IK chain** (`IK_JOINTS` in scene.py, matches upstream) — torso turns to the table, arm relieved.
 **GRASP+LIFT+CARRY SOLVED** (iter10/12: `held`+`elevated`, no drop): NO riser, table top 0.78,
 cube at the grasp-centre reach floor `(0.13,0.22,0.805)`, tilt 0.5, grip stiffness 200 (300 ejects
-the rigid cube). NB probe heights are warm-start-optimistic (reset doesn't re-home arm) — trust
-trajectory telemetry. REMAINING: (1) grasp is marginal/not yet reliable
-(2 of 4 runs held); (2) place blocked — arm carries only to y≈0.21, but a basket there collides
+the rigid cube). REMAINING: (1) grasp marginal/not yet reliable (2 of 4 runs held — probe heights
+are warm-start-optimistic, trust telemetry); (2) place blocked — arm carries only to y≈0.21, collides
 with the grasp and one at y=0.34 is out of carry reach (tiny ~10–15 cm workspace). 4-flag verifier
 in `pipeline/ego2g1.py`; probes in `diagnostics/probe*.py`. Pink IK / cuRobo / GraspGen remain
 blocked — native DiffIK only. Full data in `diagnostics/REPORT.md`.

@@ -62,6 +62,7 @@ DEFAULTS: dict[str, Any] = {
     "basket_rim_z": 0.80,
     "basket_radius": 0.085,
     "grasp_tilt": 0.5,          # 1.0=fingers fully down (singular), 0.5=reachable tilted top-down
+    "grasp_center_frac": 0.75,  # control the finger grasp-center (this frac of palm->fingertip), not the palm
     "approach_height": 0.18,    # palm height above cube for the "above" waypoint (well clear)
     "grasp_palm_above": 0.04,   # cube now raised on riser -> palm near cube top, reachable
     "lift_z": 0.95,
@@ -119,7 +120,8 @@ def _execute(cfg, simulation_app) -> RunResult:
     import torch
     import gymnasium as gym
     from isaaclab.utils.math import (
-        quat_from_angle_axis, quat_from_euler_xyz, quat_mul, subtract_frame_transforms,
+        quat_from_angle_axis, quat_from_euler_xyz, quat_mul, quat_rotate,
+        quat_rotate_inverse, subtract_frame_transforms,
     )
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sim"))
@@ -192,6 +194,22 @@ def _execute(cfg, simulation_app) -> RunResult:
         grasp_quat_w = fingers_down_quat()
     print(f"[ego2g1] grasp orientation (fingers-down) quat={[round(float(q),3) for q in grasp_quat_w.tolist()]}", flush=True)
 
+    # Grasp-center offset: IK targets the palm link, but the Dex3 closes ~5-6cm further out.
+    # offset_local = palm->fingertip-mean in the palm's LOCAL frame (orientation-independent).
+    # We treat all targets as GRASP-CENTER targets and convert to a palm target via this offset,
+    # so the fingers cage the object. gc_actual_w() = the live grasp-center world position.
+    _gc_tips = [robot.body_names.index(n) for n in
+                ("right_hand_index_1_link", "right_hand_middle_1_link", "right_hand_thumb_2_link")]
+    _palm0 = robot.data.body_pos_w[0, ee_idx]
+    _ftm0 = robot.data.body_pos_w[0, _gc_tips].mean(dim=0)
+    grasp_offset_local = (quat_rotate_inverse(ee_quat0.unsqueeze(0), (_ftm0 - _palm0).unsqueeze(0))[0]
+                          * float(cfg["grasp_center_frac"]))
+    print(f"[ego2g1] grasp-center local offset={[round(float(v), 3) for v in grasp_offset_local.tolist()]}", flush=True)
+
+    def gc_actual_w():
+        palm = robot.data.body_pos_w[0, ee_idx]
+        return palm + quat_rotate(grasp_quat_w.unsqueeze(0), grasp_offset_local.unsqueeze(0))[0]
+
     def target_for(step, bpos):
         bx, by, bz = float(bpos[0]), float(bpos[1]), float(bpos[2])
         cx, cy = cfg["basket_center"]
@@ -209,19 +227,22 @@ def _execute(cfg, simulation_app) -> RunResult:
         return pos, grasp_quat_w, hand
 
     def make_action(target_pos_w, target_quat_w, hand7):
-        # DiffIK action (14): [ee_pos_b(3), ee_quat_b(4), hand(7)], EE target in base frame.
+        # target_pos_w is the desired GRASP-CENTER world pos; convert to the palm IK target
+        # by subtracting the rotated grasp-center offset. DiffIK action (14): [pos_b, quat_b, hand].
+        tquat = (target_quat_w if torch.is_tensor(target_quat_w)
+                 else torch.as_tensor(target_quat_w, device=device, dtype=torch.float32))
+        gc = torch.as_tensor(target_pos_w, device=device, dtype=torch.float32)
+        world_off = quat_rotate(tquat.unsqueeze(0), grasp_offset_local.unsqueeze(0))[0]
+        palm_target = (gc - world_off).unsqueeze(0)
         root_pos = robot.data.root_pos_w[0:1]
         root_quat = robot.data.root_quat_w[0:1]
-        tpos = torch.as_tensor(target_pos_w, device=device, dtype=torch.float32).unsqueeze(0)
-        tquat = (target_quat_w if torch.is_tensor(target_quat_w)
-                 else torch.as_tensor(target_quat_w, device=device, dtype=torch.float32)).unsqueeze(0)
-        pos_b, quat_b = subtract_frame_transforms(root_pos, root_quat, tpos, tquat)
+        pos_b, quat_b = subtract_frame_transforms(root_pos, root_quat, palm_target, tquat.unsqueeze(0))
         return torch.cat([pos_b, quat_b, hand7.unsqueeze(0)], dim=-1)
 
     # warmup: hold the arm at its default pose with the hand open, let the ball settle,
     # and capture its rest pose. Also tells us if the ball stays on the table at all.
     ee_p0, _ = ee_pose_w()
-    hold = make_action(list(ee_p0.tolist()), grasp_quat_w, hand_open)
+    hold = make_action(list(gc_actual_w().tolist()), grasp_quat_w, hand_open)
     z_reset = float(ball_pos_w()[2])
     for k in range(cfg["steps_warmup"]):
         env.step(hold)
@@ -265,7 +286,7 @@ def _execute(cfg, simulation_app) -> RunResult:
         if not cfg.get("telemetry"):
             return
         q = arm_q_t()
-        ee_p = robot.data.body_pos_w[0, ee_idx]
+        ee_p = gc_actual_w()  # report the grasp center (the controlled point), not the palm
         ee_q = robot.data.body_quat_w[0, ee_idx]
         cp = ball.data.root_pos_w[0]
         manip, cond = manip_cond()
@@ -307,30 +328,34 @@ def _execute(cfg, simulation_app) -> RunResult:
         if hand is not None:
             cur["fcmd"] = [round(float(x), 3) for x in (hand.tolist() if torch.is_tensor(hand) else hand)]
         env.step(a)
+        respawn_if_fallen()  # the instant the cube falls off, put it back (checked every step)
         q = arm_q_t()
         dq = float((q - prev_q).abs().max())
         prev_q = q.clone()
-        err = float((robot.data.body_pos_w[0, ee_idx]
+        err = float((gc_actual_w()
                      - torch.as_tensor(target_pos, device=device, dtype=torch.float32)).norm())
         stab["max_dq"] = max(stab["max_dq"], dq)
         stab["max_ee_err"] = max(stab["max_ee_err"], err)
         record()
 
-    def move_to(target_pos, hand, label):
-        # interpolate the EE target in small increments so each IK correction is tiny
-        # and the motion stays smooth/stable (no redundant-arm swing on the carry).
+    def move_to(target_pos, hand, label, track_z=None):
+        # interpolate the GRASP-CENTER target in small increments (smooth, stable IK).
+        # If track_z is set, re-acquire the LIVE cube each waypoint (closed-loop approach):
+        # target = (live cube xy, live cube z + track_z) — so it follows the cube in real time.
         nwp, spw = cfg["interp_waypoints"], cfg["steps_per_waypoint"]
-        start = ee_pose_w()[0].tolist()
+        start = gc_actual_w().tolist()
         for i in range(1, nwp + 1):
             f = i / nwp
+            if track_z is not None:
+                cb = ball_pos_w()
+                target_pos = [float(cb[0]), float(cb[1]), float(cb[2]) + track_z]
             wp = [start[j] + (target_pos[j] - start[j]) * f for j in range(3)]
             a = make_action(wp, grasp_quat_w, hand)
             for _ in range(spw):
                 step_track(a, wp, hand)
             if i % max(1, nwp // 4) == 0:
-                ep = ee_pose_w()[0]
-                print(f"[ego2g1]   ..{label} wp{i}/{nwp} ee={[round(float(v), 3) for v in ep]} "
-                      f"max_dq={stab['max_dq']:.3f} arm_q={arm_q()}", flush=True)
+                print(f"[ego2g1]   ..{label} wp{i}/{nwp} gc={[round(float(v), 3) for v in gc_actual_w()]} "
+                      f"cube={[round(float(v), 3) for v in ball_pos_w()]} max_dq={stab['max_dq']:.3f}", flush=True)
         a = make_action(target_pos, grasp_quat_w, hand)
         for _ in range(cfg["steps_settle_move"]):
             step_track(a, target_pos, hand)
@@ -340,18 +365,20 @@ def _execute(cfg, simulation_app) -> RunResult:
     for step in steps:
         respawn_if_fallen()
         cur["phase"] = step
-        tpos, tquat, hand = target_for(step, ball_rest)
+        tpos, tquat, hand = target_for(step, ball_pos_w())  # LIVE cube position (closed-loop)
+        track_z = {"move_above_ball": cfg["approach_height"],
+                   "descend_to_ball": cfg["grasp_palm_above"]}.get(step)
         if step == "grasp":
             grasp_state = "closed"
         elif step == "release":
             grasp_state = "open"
         if step in ("grasp", "release"):
-            # hold the EE pose; actuate the Dex3 fingers (close / open) over time
+            # hold the grasp-center over the live cube; actuate the Dex3 fingers over time
             a = make_action(tpos, grasp_quat_w, hand)
             for _ in range(cfg["steps_grasp"]):
                 step_track(a, tpos, hand)
         else:
-            move_to(tpos, hand, step)
+            move_to(tpos, hand, step, track_z=track_z)
         ee_p, _ = ee_pose_w()
         bp = ball_pos_w()
         err = float(torch.norm(ee_p - torch.tensor(tpos, device=device)))

@@ -113,7 +113,7 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
     riser = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/Riser",
         init_state=AssetBaseCfg.InitialStateCfg(pos=(0.16, 0.20, 0.70 + (RISER_TOP - 0.70) / 2)),
-        spawn=_static_box((0.09, 0.09, RISER_TOP - 0.70), color=(0.45, 0.45, 0.50)),
+        spawn=_static_box((0.18, 0.18, RISER_TOP - 0.70), color=(0.45, 0.45, 0.50)),
     )
 
     object = RigidObjectCfg(
@@ -173,6 +173,9 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
 
     def __post_init__(self):
         self.robot.spawn.articulation_props.fix_root_link = True
+        # stiffen the Dex3 fingers so they actually close on the cube (default 20 was too soft)
+        self.robot.actuators["hands"].stiffness = 200.0
+        self.robot.actuators["hands"].damping = 10.0
 
 
 @configclass

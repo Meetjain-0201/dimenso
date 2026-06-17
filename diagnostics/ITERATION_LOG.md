@@ -13,3 +13,4 @@ palm_short 0.19m, cube flung. Probe → tilt=0.5 @ (0.16,0.20) reachable (manip 
 **Stopped at iteration 4 (graceful, well under the 20 cap): remaining failure is a single,
 well-characterized cause — grasp closure / control-point offset — with a clean fix (below).
 Did NOT thrash; did NOT touch any blocked solver.**
+| 5 | grasp_empty + cube knocked off riser (open-loop, respawn off) | grasp-center offset + stiff Dex3 fingers; cube fell, robot oblivious |

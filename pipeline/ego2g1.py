@@ -55,7 +55,7 @@ DEFAULTS: dict[str, Any] = {
     "keep_alive": False,  # if GUI: hold the window open after the sequence for viewing
     "task_text": None,
     "objects": {"ball": "object", "basket": "basket"},
-    "basket_center": (0.32, 0.45),
+    "basket_center": (0.34, 0.34),
     "basket_floor_z": 0.71,
     "basket_rim_z": 0.80,
     "basket_radius": 0.085,
@@ -64,15 +64,16 @@ DEFAULTS: dict[str, Any] = {
     "lift_z": 0.95,
     "release_palm_z": 0.82,
     "steps_warmup": 90,
-    "interp_waypoints": 40,     # EE target split into this many small increments per move
-    "steps_per_waypoint": 6,    # physics steps held per increment (smooth -> stable IK)
-    "steps_settle_move": 30,    # hold at the final target after a move
+    "interp_waypoints": 60,     # fine: small EE delta per waypoint -> small joint delta (no swing)
+    "steps_per_waypoint": 8,    # physics steps held per increment (less tracking lag)
+    "steps_settle_move": 60,    # hold at the final target after a move (converge to target)
     "steps_grasp": 180,         # hold while fingers close/open
     "steps_settle": 120,
-    # Dex3 right hand: [index_0,index_1,middle_0,middle_1,thumb_0,thumb_1,thumb_2]
-    "hand_open": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    "hand_close": [0.9, 0.9, 0.9, 0.9, 0.6, 0.9, 0.6],
-    "grasp_euler_w": None,  # None -> hold the EE's reset orientation
+    "arm_q_delta_thresh": 0.15, # max per-step joint change (rad) allowed on the carry (no jitter)
+    "ee_err_thresh": 0.12,      # max EE tracking error (m) allowed through the trajectory
+    # right Dex3 close targets, in RIGHT_HAND_JOINTS order: index0,index1,middle0,middle1,thumb0,thumb1,thumb2
+    "hand_close_vals": [0.9, 0.9, 0.9, 0.9, 0.6, 0.9, 0.6],
+    "grasp_euler_w": None,  # None -> hold the palm's reset orientation
 }
 
 
@@ -114,7 +115,9 @@ def _execute(cfg, simulation_app) -> RunResult:
 
     import torch
     import gymnasium as gym
-    from isaaclab.utils.math import quat_from_euler_xyz, subtract_frame_transforms
+    from isaaclab.utils.math import (
+        quat_from_angle_axis, quat_from_euler_xyz, quat_mul, subtract_frame_transforms,
+    )
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sim"))
     import scene  # registers Dimenso-AppleBasket-G1-v0
@@ -135,7 +138,7 @@ def _execute(cfg, simulation_app) -> RunResult:
     print("[ego2g1] env built; resetting ...", flush=True)
     env.reset()
     print("[ego2g1] env reset done — starting sequence", flush=True)
-    ee_idx = robot.body_names.index(scene.EE_BODY)
+    ee_idx = robot.body_names.index(scene.EE_BODY)  # right_hand_palm_link
 
     def ee_pose_w():
         return robot.data.body_pos_w[0, ee_idx].clone(), robot.data.body_quat_w[0, ee_idx].clone()
@@ -143,10 +146,39 @@ def _execute(cfg, simulation_app) -> RunResult:
     def ball_pos_w():
         return ball.data.root_pos_w[0].clone()
 
-    hand_open = torch.tensor(cfg["hand_open"], device=device, dtype=torch.float32)
-    hand_close = torch.tensor(cfg["hand_close"], device=device, dtype=torch.float32)
+    # right Dex3 hand command (7 joints, in RIGHT_HAND_JOINTS order)
+    def hand_vec(closed):
+        v = torch.zeros(7, device=device, dtype=torch.float32)
+        if closed:
+            v[:] = torch.as_tensor(cfg["hand_close_vals"], device=device, dtype=torch.float32)
+        return v
+
+    hand_open = hand_vec(False)
+    hand_close = hand_vec(True)
 
     _, ee_quat0 = ee_pose_w()
+    # auto fingers-down orientation: rotate the palm so its current finger direction
+    # (palm -> fingertips) points world -Z, with minimal wrist twist.
+    ftip_idx = [robot.body_names.index(n) for n in ("right_hand_middle_1_link", "right_hand_index_1_link")]
+
+    def fingers_down_quat():
+        palm = robot.data.body_pos_w[0, ee_idx]
+        ftips = robot.data.body_pos_w[0, ftip_idx].mean(dim=0)
+        v = ftips - palm
+        n = float(v.norm())
+        if n < 1e-6:
+            return ee_quat0.clone()
+        v = v / n
+        down = torch.tensor([0.0, 0.0, -1.0], device=device)
+        axis = torch.cross(v, down, dim=0)
+        s = float(axis.norm())
+        if s < 1e-6:
+            return ee_quat0.clone()
+        axis = axis / s
+        angle = torch.acos(torch.clamp(torch.dot(v, down), -1.0, 1.0))
+        dq = quat_from_angle_axis(angle.unsqueeze(0), axis.unsqueeze(0))[0]
+        return quat_mul(dq.unsqueeze(0), ee_quat0.unsqueeze(0))[0]
+
     if cfg["grasp_euler_w"] is not None:
         r, p, y = cfg["grasp_euler_w"]
         grasp_quat_w = quat_from_euler_xyz(
@@ -154,7 +186,8 @@ def _execute(cfg, simulation_app) -> RunResult:
             torch.tensor([y], device=device),
         )[0]
     else:
-        grasp_quat_w = ee_quat0.clone()
+        grasp_quat_w = fingers_down_quat()
+    print(f"[ego2g1] grasp orientation (fingers-down) quat={[round(float(q),3) for q in grasp_quat_w.tolist()]}", flush=True)
 
     def target_for(step, bpos):
         bx, by, bz = float(bpos[0]), float(bpos[1]), float(bpos[2])
@@ -172,13 +205,15 @@ def _execute(cfg, simulation_app) -> RunResult:
         pos, hand = table[step]
         return pos, grasp_quat_w, hand
 
-    def make_action(target_pos_w, target_quat_w, hand_targets):
+    def make_action(target_pos_w, target_quat_w, hand7):
+        # DiffIK action (14): [ee_pos_b(3), ee_quat_b(4), hand(7)], EE target in base frame.
         root_pos = robot.data.root_pos_w[0:1]
         root_quat = robot.data.root_quat_w[0:1]
-        tpos = torch.tensor(target_pos_w, device=device, dtype=torch.float32).unsqueeze(0)
-        tquat = target_quat_w.unsqueeze(0)
+        tpos = torch.as_tensor(target_pos_w, device=device, dtype=torch.float32).unsqueeze(0)
+        tquat = (target_quat_w if torch.is_tensor(target_quat_w)
+                 else torch.as_tensor(target_quat_w, device=device, dtype=torch.float32)).unsqueeze(0)
         pos_b, quat_b = subtract_frame_transforms(root_pos, root_quat, tpos, tquat)
-        return torch.cat([pos_b, quat_b, hand_targets.unsqueeze(0)], dim=-1)
+        return torch.cat([pos_b, quat_b, hand7.unsqueeze(0)], dim=-1)
 
     # warmup: hold the arm at its default pose with the hand open, let the ball settle,
     # and capture its rest pose. Also tells us if the ball stays on the table at all.
@@ -195,20 +230,39 @@ def _execute(cfg, simulation_app) -> RunResult:
 
     arm_idx = [robot.joint_names.index(j) for j in scene.RIGHT_ARM_JOINTS]
 
+    def arm_q_t():
+        return robot.data.joint_pos[0, arm_idx]
+
     def arm_q():
-        return [round(float(q), 2) for q in robot.data.joint_pos[0, arm_idx].tolist()]
+        return [round(float(q), 2) for q in arm_q_t().tolist()]
 
     def respawn_if_fallen():
         bp = ball_pos_w()
         if float(bp[2]) < 0.55:  # below the table -> it rolled/fell off
-            pose = torch.tensor([[*scene.BALL_POS, 1.0, 0.0, 0.0, 0.0]], device=device, dtype=torch.float32)
+            pose = torch.tensor([[*scene.OBJECT_POS, 1.0, 0.0, 0.0, 0.0]], device=device, dtype=torch.float32)
             ball.write_root_pose_to_sim(pose)
             ball.write_root_velocity_to_sim(torch.zeros((1, 6), device=device))
-            print("[ego2g1]   (ball had fallen off — respawned on table)", flush=True)
+            print("[ego2g1]   (object had fallen off — respawned on table)", flush=True)
+
+    # stability accumulators (the no-jitter check): max per-step joint delta + max EE error,
+    # tracked across the WHOLE trajectory (incl. carry).
+    stab = {"max_dq": 0.0, "max_ee_err": 0.0}
+    prev_q = arm_q_t().clone()
+
+    def step_track(a, target_pos):
+        nonlocal prev_q
+        env.step(a)
+        q = arm_q_t()
+        dq = float((q - prev_q).abs().max())
+        prev_q = q.clone()
+        err = float((robot.data.body_pos_w[0, ee_idx]
+                     - torch.as_tensor(target_pos, device=device, dtype=torch.float32)).norm())
+        stab["max_dq"] = max(stab["max_dq"], dq)
+        stab["max_ee_err"] = max(stab["max_ee_err"], err)
 
     def move_to(target_pos, hand, label):
         # interpolate the EE target in small increments so each IK correction is tiny
-        # and the motion stays smooth/stable (avoids the redundant-arm oscillation).
+        # and the motion stays smooth/stable (no redundant-arm swing on the carry).
         nwp, spw = cfg["interp_waypoints"], cfg["steps_per_waypoint"]
         cur = ee_pose_w()[0].tolist()
         for i in range(1, nwp + 1):
@@ -216,14 +270,14 @@ def _execute(cfg, simulation_app) -> RunResult:
             wp = [cur[j] + (target_pos[j] - cur[j]) * f for j in range(3)]
             a = make_action(wp, grasp_quat_w, hand)
             for _ in range(spw):
-                env.step(a)
+                step_track(a, wp)
             if i % max(1, nwp // 4) == 0:
                 ep = ee_pose_w()[0]
                 print(f"[ego2g1]   ..{label} wp{i}/{nwp} ee={[round(float(v), 3) for v in ep]} "
-                      f"arm_q={arm_q()}", flush=True)
+                      f"max_dq={stab['max_dq']:.3f} arm_q={arm_q()}", flush=True)
         a = make_action(target_pos, grasp_quat_w, hand)
         for _ in range(cfg["steps_settle_move"]):
-            env.step(a)
+            step_track(a, target_pos)
 
     log = []
     grasp_state = "open"
@@ -238,7 +292,7 @@ def _execute(cfg, simulation_app) -> RunResult:
             # hold the EE pose; actuate the Dex3 fingers (close / open) over time
             a = make_action(tpos, grasp_quat_w, hand)
             for _ in range(cfg["steps_grasp"]):
-                env.step(a)
+                step_track(a, tpos)
         else:
             move_to(tpos, hand, step)
         ee_p, _ = ee_pose_w()
@@ -256,15 +310,17 @@ def _execute(cfg, simulation_app) -> RunResult:
         print(f"[ego2g1] {step:18s} grasp={grasp_state:6s} ee_err={err:.3f} "
               f"ee={rec['ee']} ball={rec['ball']} arm_q={rec['arm_q']}", flush=True)
 
-    last = make_action(*target_for("release", ball_pos_w()))
+    rel_pos, _, rel_hand = target_for("release", ball_rest)
+    last = make_action(rel_pos, grasp_quat_w, rel_hand)
     for _ in range(cfg["steps_settle"]):
-        env.step(last)
+        step_track(last, rel_pos)
 
     bp = ball_pos_w()
     cx, cy = cfg["basket_center"]
     xy_off = math.hypot(float(bp[0]) - cx, float(bp[1]) - cy)
     in_xy = xy_off <= cfg["basket_radius"]
     in_z = (cfg["basket_floor_z"] - 0.03) <= float(bp[2]) <= (cfg["basket_rim_z"] + 0.02)
+    stable = bool(stab["max_dq"] <= cfg["arm_q_delta_thresh"] and stab["max_ee_err"] <= cfg["ee_err_thresh"])
     success = bool(in_xy and in_z)
     metrics = {
         "task_text": task_text,
@@ -276,8 +332,13 @@ def _execute(cfg, simulation_app) -> RunResult:
         "xy_off": round(xy_off, 4),
         "in_xy": in_xy, "in_z": in_z,
         "final_grasp_state": grasp_state,
+        "max_arm_dq": round(stab["max_dq"], 4),
+        "max_ee_err": round(stab["max_ee_err"], 4),
+        "arm_q_delta_thresh": cfg["arm_q_delta_thresh"],
+        "ee_err_thresh": cfg["ee_err_thresh"],
+        "stable": stable,
     }
-    msg = "ball placed in basket" if success else f"ball not in basket (xy_off={xy_off:.3f}, z={float(bp[2]):.3f})"
+    msg = "cube placed in basket" if success else f"cube not in basket (xy_off={xy_off:.3f}, z={float(bp[2]):.3f})"
     print(f"[ego2g1] RESULT success={success} | {msg}")
     result = RunResult(success=success, message=msg, metrics=metrics, steps=log)
 

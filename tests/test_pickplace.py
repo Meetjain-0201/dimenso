@@ -36,6 +36,13 @@ def check(result):
     assert bz >= m["basket_floor_z"] - 0.03, (
         f"ball z {bz:.3f} m is below basket floor {m['basket_floor_z']:.3f} m"
     )
+    # (c) stability / no-jitter check across the whole trajectory (incl. carry)
+    assert m["max_arm_dq"] <= m["arm_q_delta_thresh"], (
+        f"jitter: max per-step arm_q delta {m['max_arm_dq']:.3f} rad > {m['arm_q_delta_thresh']} (swinging)"
+    )
+    assert m["max_ee_err"] <= m["ee_err_thresh"], (
+        f"IK tracking error {m['max_ee_err']:.3f} m > {m['ee_err_thresh']} m"
+    )
     return xy
 
 

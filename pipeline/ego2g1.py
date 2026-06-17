@@ -53,16 +53,19 @@ DEFAULTS: dict[str, Any] = {
     "enable_camera": False,
     "close_app": True,
     "keep_alive": False,  # if GUI: hold the window open after the sequence for viewing
+    "telemetry": None,    # path prefix -> dump per-step telemetry JSON+CSV (diagnostics)
+    "respawn": True,      # respawn object if it falls; set False for honest diagnostics
     "task_text": None,
     "objects": {"ball": "object", "basket": "basket"},
-    "basket_center": (0.34, 0.34),
+    "basket_center": (0.04, 0.32),
     "basket_floor_z": 0.71,
     "basket_rim_z": 0.80,
     "basket_radius": 0.085,
-    "approach_height": 0.12,
-    "grasp_palm_above": 0.06,
+    "grasp_tilt": 0.5,          # 1.0=fingers fully down (singular), 0.5=reachable tilted top-down
+    "approach_height": 0.18,    # palm height above cube for the "above" waypoint (well clear)
+    "grasp_palm_above": 0.04,   # cube now raised on riser -> palm near cube top, reachable
     "lift_z": 0.95,
-    "release_palm_z": 0.82,
+    "release_palm_z": 0.86,
     "steps_warmup": 90,
     "interp_waypoints": 60,     # fine: small EE delta per waypoint -> small joint delta (no swing)
     "steps_per_waypoint": 8,    # physics steps held per increment (less tracking lag)
@@ -72,7 +75,7 @@ DEFAULTS: dict[str, Any] = {
     "arm_q_delta_thresh": 0.15, # max per-step joint change (rad) allowed on the carry (no jitter)
     "ee_err_thresh": 0.12,      # max EE tracking error (m) allowed through the trajectory
     # right Dex3 close targets, in RIGHT_HAND_JOINTS order: index0,index1,middle0,middle1,thumb0,thumb1,thumb2
-    "hand_close_vals": [0.9, 0.9, 0.9, 0.9, 0.6, 0.9, 0.6],
+    "hand_close_vals": [1.2, 1.5, 1.2, 1.5, 0.9, 1.0, 0.6],  # fuller curl to bridge the gap
     "grasp_euler_w": None,  # None -> hold the palm's reset orientation
 }
 
@@ -175,7 +178,7 @@ def _execute(cfg, simulation_app) -> RunResult:
         if s < 1e-6:
             return ee_quat0.clone()
         axis = axis / s
-        angle = torch.acos(torch.clamp(torch.dot(v, down), -1.0, 1.0))
+        angle = torch.acos(torch.clamp(torch.dot(v, down), -1.0, 1.0)) * float(cfg["grasp_tilt"])
         dq = quat_from_angle_axis(angle.unsqueeze(0), axis.unsqueeze(0))[0]
         return quat_mul(dq.unsqueeze(0), ee_quat0.unsqueeze(0))[0]
 
@@ -229,6 +232,9 @@ def _execute(cfg, simulation_app) -> RunResult:
           f"pos={[round(float(v), 3) for v in ball_rest]}")
 
     arm_idx = [robot.joint_names.index(j) for j in scene.RIGHT_ARM_JOINTS]
+    hand_dof_idx = [robot.joint_names.index(j) for j in scene.RIGHT_HAND_JOINTS]
+    _jl = robot.data.soft_joint_pos_limits[0]  # (num_dof, 2)
+    arm_limits = [(float(_jl[i, 0]), float(_jl[i, 1])) for i in arm_idx]
 
     def arm_q_t():
         return robot.data.joint_pos[0, arm_idx]
@@ -236,21 +242,70 @@ def _execute(cfg, simulation_app) -> RunResult:
     def arm_q():
         return [round(float(q), 2) for q in arm_q_t().tolist()]
 
+    def manip_cond():
+        # manipulability sqrt(det(J Jᵀ)) and Jacobian condition for the EE wrt the 7 arm joints
+        try:
+            J = robot.root_physx_view.get_jacobians()
+            jb = ee_idx - 1 if J.shape[1] == (robot.num_bodies - 1) else ee_idx
+            Je = J[0, jb][:, arm_idx].float()  # 6x7
+            s = torch.linalg.svdvals(Je)
+            smin, smax = float(s.min()), float(s.max())
+            return float(torch.prod(s)), (smax / smin if smin > 1e-9 else float("inf"))
+        except Exception:
+            return float("nan"), float("nan")
+
+    def _quat_angle(q1, q2):
+        d = float(torch.clamp((q1 * q2).sum().abs(), 0.0, 1.0))
+        return 2.0 * math.acos(d)
+
+    telem = []
+    cur = {"phase": "warmup", "tpos": None, "fcmd": None, "fell": False}
+
+    def record():
+        if not cfg.get("telemetry"):
+            return
+        q = arm_q_t()
+        ee_p = robot.data.body_pos_w[0, ee_idx]
+        ee_q = robot.data.body_quat_w[0, ee_idx]
+        cp = ball.data.root_pos_w[0]
+        manip, cond = manip_cond()
+        perr = (float((ee_p - torch.as_tensor(cur["tpos"], device=device, dtype=torch.float32)).norm())
+                if cur["tpos"] is not None else float("nan"))
+        oerr = _quat_angle(ee_q, grasp_quat_w)
+        lim = [round(min(float(q[i]) - arm_limits[i][0], arm_limits[i][1] - float(q[i])), 3) for i in range(7)]
+        telem.append({
+            "i": len(telem), "phase": cur["phase"],
+            "cube_pos": [round(float(v), 4) for v in cp],
+            "cube_vel": round(float(ball.data.root_lin_vel_w[0].norm()), 4),
+            "ee_pos": [round(float(v), 4) for v in ee_p],
+            "ee_pos_err": round(perr, 4), "ee_orient_err": round(oerr, 4),
+            "arm_q": [round(float(x), 3) for x in q], "jlim": lim,
+            "manip": round(manip, 5), "jac_cond": round(cond, 2),
+            "fcmd": cur["fcmd"],
+            "fact": [round(float(robot.data.joint_pos[0, h]), 3) for h in hand_dof_idx],
+        })
+
     def respawn_if_fallen():
         bp = ball_pos_w()
         if float(bp[2]) < 0.55:  # below the table -> it rolled/fell off
+            cur["fell"] = True
+            if not cfg.get("respawn", True):
+                return  # diagnostics: let it lie so we can see the real fall
             pose = torch.tensor([[*scene.OBJECT_POS, 1.0, 0.0, 0.0, 0.0]], device=device, dtype=torch.float32)
             ball.write_root_pose_to_sim(pose)
             ball.write_root_velocity_to_sim(torch.zeros((1, 6), device=device))
-            print("[ego2g1]   (object had fallen off — respawned on table)", flush=True)
+            print("[ego2g1]   (object had fallen off — respawned [FAILURE EVENT])", flush=True)
 
     # stability accumulators (the no-jitter check): max per-step joint delta + max EE error,
     # tracked across the WHOLE trajectory (incl. carry).
     stab = {"max_dq": 0.0, "max_ee_err": 0.0}
     prev_q = arm_q_t().clone()
 
-    def step_track(a, target_pos):
+    def step_track(a, target_pos, hand=None):
         nonlocal prev_q
+        cur["tpos"] = target_pos
+        if hand is not None:
+            cur["fcmd"] = [round(float(x), 3) for x in (hand.tolist() if torch.is_tensor(hand) else hand)]
         env.step(a)
         q = arm_q_t()
         dq = float((q - prev_q).abs().max())
@@ -259,30 +314,32 @@ def _execute(cfg, simulation_app) -> RunResult:
                      - torch.as_tensor(target_pos, device=device, dtype=torch.float32)).norm())
         stab["max_dq"] = max(stab["max_dq"], dq)
         stab["max_ee_err"] = max(stab["max_ee_err"], err)
+        record()
 
     def move_to(target_pos, hand, label):
         # interpolate the EE target in small increments so each IK correction is tiny
         # and the motion stays smooth/stable (no redundant-arm swing on the carry).
         nwp, spw = cfg["interp_waypoints"], cfg["steps_per_waypoint"]
-        cur = ee_pose_w()[0].tolist()
+        start = ee_pose_w()[0].tolist()
         for i in range(1, nwp + 1):
             f = i / nwp
-            wp = [cur[j] + (target_pos[j] - cur[j]) * f for j in range(3)]
+            wp = [start[j] + (target_pos[j] - start[j]) * f for j in range(3)]
             a = make_action(wp, grasp_quat_w, hand)
             for _ in range(spw):
-                step_track(a, wp)
+                step_track(a, wp, hand)
             if i % max(1, nwp // 4) == 0:
                 ep = ee_pose_w()[0]
                 print(f"[ego2g1]   ..{label} wp{i}/{nwp} ee={[round(float(v), 3) for v in ep]} "
                       f"max_dq={stab['max_dq']:.3f} arm_q={arm_q()}", flush=True)
         a = make_action(target_pos, grasp_quat_w, hand)
         for _ in range(cfg["steps_settle_move"]):
-            step_track(a, target_pos)
+            step_track(a, target_pos, hand)
 
     log = []
     grasp_state = "open"
     for step in steps:
         respawn_if_fallen()
+        cur["phase"] = step
         tpos, tquat, hand = target_for(step, ball_rest)
         if step == "grasp":
             grasp_state = "closed"
@@ -292,7 +349,7 @@ def _execute(cfg, simulation_app) -> RunResult:
             # hold the EE pose; actuate the Dex3 fingers (close / open) over time
             a = make_action(tpos, grasp_quat_w, hand)
             for _ in range(cfg["steps_grasp"]):
-                step_track(a, tpos)
+                step_track(a, tpos, hand)
         else:
             move_to(tpos, hand, step)
         ee_p, _ = ee_pose_w()
@@ -310,10 +367,11 @@ def _execute(cfg, simulation_app) -> RunResult:
         print(f"[ego2g1] {step:18s} grasp={grasp_state:6s} ee_err={err:.3f} "
               f"ee={rec['ee']} ball={rec['ball']} arm_q={rec['arm_q']}", flush=True)
 
+    cur["phase"] = "settle"
     rel_pos, _, rel_hand = target_for("release", ball_rest)
     last = make_action(rel_pos, grasp_quat_w, rel_hand)
     for _ in range(cfg["steps_settle"]):
-        step_track(last, rel_pos)
+        step_track(last, rel_pos, rel_hand)
 
     bp = ball_pos_w()
     cx, cy = cfg["basket_center"]
@@ -321,8 +379,15 @@ def _execute(cfg, simulation_app) -> RunResult:
     in_xy = xy_off <= cfg["basket_radius"]
     in_z = (cfg["basket_floor_z"] - 0.03) <= float(bp[2]) <= (cfg["basket_rim_z"] + 0.02)
     stable = bool(stab["max_dq"] <= cfg["arm_q_delta_thresh"] and stab["max_ee_err"] <= cfg["ee_err_thresh"])
+    # grasp-held: cube must rise AND stay near the palm during lift/carry (not flung).
+    _lr = [r for r in telem if r["phase"] in ("lift", "move_above_basket")]
+    cube_z_lift = max((r["cube_pos"][2] for r in _lr), default=0.0)
+    _near = sum(1 for r in _lr if math.dist(r["cube_pos"], r["ee_pos"]) < 0.15)
+    grasp_held = bool(_lr and _near / len(_lr) > 0.6 and cube_z_lift > cfg["basket_floor_z"] + 0.05)
     success = bool(in_xy and in_z)
     metrics = {
+        "grasp_held": grasp_held, "cube_z_max_lift": round(cube_z_lift, 4),
+        "object_fell": bool(cur["fell"]),
         "task_text": task_text,
         "ball_final_pos": [round(float(v), 4) for v in bp],
         "basket_center": [cx, cy, cfg["basket_floor_z"]],
@@ -341,6 +406,26 @@ def _execute(cfg, simulation_app) -> RunResult:
     msg = "cube placed in basket" if success else f"cube not in basket (xy_off={xy_off:.3f}, z={float(bp[2]):.3f})"
     print(f"[ego2g1] RESULT success={success} | {msg}")
     result = RunResult(success=success, message=msg, metrics=metrics, steps=log)
+
+    if cfg.get("telemetry"):
+        import csv as _csv
+        import json as _json
+        import os as _os
+        p = cfg["telemetry"]
+        _os.makedirs(_os.path.dirname(p) or ".", exist_ok=True)
+        basket = {"center": list(cfg["basket_center"]), "radius": cfg["basket_radius"],
+                  "floor_z": cfg["basket_floor_z"], "rim_z": cfg["basket_rim_z"]}
+        with open(p + ".json", "w") as f:
+            _json.dump({"metrics": metrics, "basket": basket, "object_start": list(scene.OBJECT_POS),
+                        "telemetry": telem}, f, indent=1)
+        if telem:
+            cols = ["i", "phase", "ee_pos_err", "ee_orient_err", "manip", "jac_cond", "cube_vel"]
+            with open(p + ".csv", "w", newline="") as f:
+                w = _csv.writer(f)
+                w.writerow(cols + ["cube_x", "cube_y", "cube_z"])
+                for r in telem:
+                    w.writerow([r[c] for c in cols] + r["cube_pos"])
+        print(f"[ego2g1] telemetry -> {p}.json / .csv ({len(telem)} rows)", flush=True)
 
     if cfg.get("keep_alive") and not cfg["headless"]:
         print("[ego2g1] view open — close the Isaac Sim window to exit.")

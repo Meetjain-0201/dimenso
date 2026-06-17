@@ -178,3 +178,19 @@ conda activate isaac_sim
 cd ~/projects/dimenso
 python sim/run_headless.py            # headless, num_envs=1, ~10 s idle, clean exit
 ```
+
+## Diagnostics tooling (overnight)
+`diagnostics/` has reusable instrumentation: `instrument.py` (per-step telemetry JSON+CSV —
+cube/EE/joints/manipulability/jac-cond/fingers, respawn-off), `analyze.py` (event detectors:
+cube_knocked/cube_fell/palm_short/near_singular/grasp_empty/slip/release_miss), `probe.py`
+(reachability sweep over grasp-tilt × position). Outputs: `ROOTCAUSE.md`, `PROBE.md`,
+`ITERATION_LOG.md`, `REPORT.md`, `telemetry/`, `replays/`.
+
+## Pick-and-place status (native DiffIK)
+Carry/approach/stability SOLVED (no jitter, no singular, no fling — `stable=True`). Probe proved
+full fingers-down is singular everywhere → use **tilt≈0.5** top-down grasp in the near-arm
+reachable band. Fixed-base G1 right arm only reaches grasp poses down to palm-z≈0.80–0.82 →
+cube **raised on a riser (top 0.78)** to bridge the gap. **Remaining:** grasp closure — IK targets
+the palm link but the Dex3 grasp center is ~5–6 cm further out, so the cube sits just outside the
+fingers. Next: add an IK `body_offset` to control the grasp center. Full data in `diagnostics/REPORT.md`.
+Pink IK remains blocked (Isaac Lab #4090) — do NOT use it.

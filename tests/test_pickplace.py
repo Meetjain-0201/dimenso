@@ -27,6 +27,7 @@ def check(result):
     xy = math.hypot(bx - cx, by - cy)
 
     assert result.success, f"pipeline reported failure: {result.message}"
+    assert m.get("grasp_held"), f"grasp not held (cube did not stay with the palm through lift/carry)"
     assert xy <= m["basket_radius"], (
         f"ball xy offset {xy:.3f} m exceeds basket radius {m['basket_radius']:.3f} m"
     )

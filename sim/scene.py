@@ -47,11 +47,14 @@ DLS_LAMBDA = 0.1
 OBJECT_KIND = "cube"   # "cube" (default) or "ball" — swap here to revert
 OBJECT_SIZE = 0.05     # cube edge length, or sphere diameter
 OBJECT_MASS = 0.05     # kg
-OBJECT_POS = (0.18, 0.34, 0.71 + OBJECT_SIZE / 2)   # closer/right — easy right-arm reach
-BASKET_CENTER = (0.34, 0.34)
+# Probe-chosen sweet spots (diagnostics/PROBE.md): tilt-0.5 grasp is reachable + in-limits
+# in the near-arm region. Cube and basket both placed there, diagonally separated.
+RISER_TOP = 0.78   # small pedestal: lifts the cube into the arm's reachable band (~0.82 m)
+OBJECT_POS = (0.16, 0.20, RISER_TOP + OBJECT_SIZE / 2)
+BASKET_CENTER = (0.04, 0.32)
 BASKET_FLOOR_Z = 0.71
 BASKET_WALL_H = 0.09
-BASKET_INNER = 0.16
+BASKET_INNER = 0.14
 
 _HIGH_FRICTION = sim_utils.RigidBodyMaterialCfg(
     static_friction=1.8, dynamic_friction=1.6, restitution=0.0
@@ -106,6 +109,13 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
         spawn=_static_box((0.80, 0.60, 0.04), color=(0.55, 0.40, 0.25)),
     )
 
+    # small pedestal under the cube — raises it into the right arm's reachable band
+    riser = AssetBaseCfg(
+        prim_path="{ENV_REGEX_NS}/Riser",
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.16, 0.20, 0.70 + (RISER_TOP - 0.70) / 2)),
+        spawn=_static_box((0.09, 0.09, RISER_TOP - 0.70), color=(0.45, 0.45, 0.50)),
+    )
+
     object = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Object",
         init_state=RigidObjectCfg.InitialStateCfg(pos=OBJECT_POS, rot=(1.0, 0.0, 0.0, 0.0)),
@@ -114,27 +124,27 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
 
     basket_floor = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketFloor",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.34, 0.34, BASKET_FLOOR_Z)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.32, BASKET_FLOOR_Z)),
         spawn=_static_box((BASKET_INNER, BASKET_INNER, 0.02)),
     )
     basket_wall_px = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallPx",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.42, 0.34, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.11, 0.32, 0.755)),
         spawn=_static_box((0.02, BASKET_INNER, BASKET_WALL_H)),
     )
     basket_wall_nx = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallNx",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.26, 0.34, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(-0.03, 0.32, 0.755)),
         spawn=_static_box((0.02, BASKET_INNER, BASKET_WALL_H)),
     )
     basket_wall_py = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallPy",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.34, 0.42, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.39, 0.755)),
         spawn=_static_box((BASKET_INNER, 0.02, BASKET_WALL_H)),
     )
     basket_wall_ny = AssetBaseCfg(
         prim_path="{ENV_REGEX_NS}/BasketWallNy",
-        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.34, 0.26, 0.755)),
+        init_state=AssetBaseCfg.InitialStateCfg(pos=(0.04, 0.25, 0.755)),
         spawn=_static_box((BASKET_INNER, 0.02, BASKET_WALL_H)),
     )
 

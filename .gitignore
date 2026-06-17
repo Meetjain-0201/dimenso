@@ -21,3 +21,6 @@ __pycache__/
 # heavy installs / external repos
 third_party/
 !.env.example
+
+# large raw telemetry (distilled into diagnostics/*.md)
+diagnostics/telemetry/

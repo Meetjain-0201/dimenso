@@ -76,7 +76,9 @@ DEFAULTS: dict[str, Any] = {
     "arm_q_delta_thresh": 0.15, # max per-step joint change (rad) allowed on the carry (no jitter)
     "ee_err_thresh": 0.12,      # max EE tracking error (m) allowed through the trajectory
     # right Dex3 close targets, in RIGHT_HAND_JOINTS order: index0,index1,middle0,middle1,thumb0,thumb1,thumb2
-    "hand_close_vals": [1.2, 1.5, 1.2, 1.5, 0.9, 1.0, 0.6],  # fuller curl to bridge the gap
+    # [index_0, index_1, middle_0, middle_1, thumb_0, thumb_1, thumb_2] — tighter curl + thumb
+    # opposition so the grip survives the carry/place (iter10 slipped on the final basket reach).
+    "hand_close_vals": [1.2, 1.7, 1.2, 1.7, 1.2, 1.3, 0.9],
     "grasp_euler_w": None,  # None -> hold the palm's reset orientation
 }
 

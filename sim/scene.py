@@ -180,8 +180,8 @@ class DimensoAppleBasketSceneCfg(InteractiveSceneCfg):
     def __post_init__(self):
         self.robot.spawn.articulation_props.fix_root_link = True
         # stiffen the Dex3 fingers so they actually close on the cube (default 20 was too soft)
-        self.robot.actuators["hands"].stiffness = 200.0
-        self.robot.actuators["hands"].damping = 10.0
+        self.robot.actuators["hands"].stiffness = 300.0   # firmer grip: hold the cube through
+        self.robot.actuators["hands"].damping = 15.0       # the wrist-twisting reach into the basket
 
 
 @configclass

@@ -17,3 +17,7 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+
+# heavy installs / external repos
+third_party/
+!.env.example

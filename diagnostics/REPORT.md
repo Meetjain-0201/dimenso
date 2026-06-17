@@ -41,16 +41,27 @@ remaining work is the final place-into-basket leg.
 |------|----------|------|----------|-----------|------|
 | 8 | ✓ | ✗ | ✗ | ✗ | gc 18 cm low (frame error: targeted palm-height as grasp-centre) |
 | 9 | ✓ | ✗ | ✗ | ✗ | cube below gc floor → clipped on top, knocked off |
-| 10 | ✓ | **✓** | **✓** | ✗ | **grasp+lift+carry SOLVED; slipped on final basket reach** |
-| 11 | — | — | — | — | firmer grip (stiffness 300, tighter curl) — see ITERATION_LOG / will append |
+| 10 | ✓ | **✓** | **✓** | ✗ | **grasp+lift+carry SOLVED; cube set down short of basket** |
+| 11 | ✓ | ✗ | ✗ | ✗ | firmer grip (stiffness 300) over-squeezed & EJECTED the rigid cube — reverted |
+| 12 | ✓ | **✓** | **✓** | ✗ | iter10 grip + slow carry: held all the way; but arm carries only to y≈0.21, basket at y=0.34 unreachable → set down 14 cm short |
+| 13 | ✓ | ✗ | ✗ | ✗ | basket → (0.0,0.20) to match carry reach, but its near wall collides with the grasp → knocked off |
+| 14 | ✓ | ✗ | ✗ | ✗ | near wall lowered; cube still dropped at grasp → grasp is marginal (run-to-run variance) |
 
-## Remaining
-The place leg: the basket pose twists the wrist (j4) past its soft limit, prying the grip loose
-during the last ~14 cm of carry (iter10 slipped at y≈0.20). Levers tried/next: firmer grip
-(iter11); a place pose with less wrist twist; slower carry. The strict "every joint >0.15 rad
-clear" at BOTH grasp and place is not simultaneously achievable for this arm — the proper fix
-(joint-limit-aware nullspace / whole-body IK, 6-DoF grasp planning) is the blocked dep set
-(Pink IK #4090, cuRobo/GraspGen Blackwell CUDA). Grasp itself is solved with native DiffIK.
+## Remaining (two coupled issues)
+1. **Grasp reliability** — held+elevated in iter10 & iter12 but dropped at grasp in iter13/14
+   (identical grasp phase). The grasp pose sits at the arm's reach floor, so it's marginal;
+   3-consecutive-success requires robustness not yet achieved.
+2. **Place workspace conflict** — at carry height the arm moves the cube laterally (x) but cannot
+   extend further forward (reaches only y≈0.21). A basket within carry reach (y≈0.21) sits close
+   enough to collide with the grasp; a basket ≥10 cm away in the only free direction (y=0.34) is
+   out of carry reach. The usable workspace (~10–15 cm) is too small for a ≥10 cm-separated,
+   collision-free pick-and-place.
+
+The clean fix for both (joint-limit-aware nullspace / whole-body IK for a larger usable envelope,
+6-DoF grasp planning for a robust grasp) is the **blocked** dep set (Pink IK #4090, cuRobo/GraspGen
+Blackwell CUDA). **The grasp+lift+carry — the blocker for this whole effort — is solved with native
+DiffIK + the waist DoF.** Practical unblock without the blocked deps: a larger/lower/closer basket
+(relax the ≥10 cm-on-the-same-table constraint), or accept the grasp+carry demo as the milestone.
 
 ## Constraints honored
 Native DifferentialIKController only; no Pink/pinocchio/cuRobo/GraspGen/mink; no env-breaking

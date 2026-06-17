@@ -196,5 +196,5 @@ the rigid cube). NB probe heights are warm-start-optimistic (reset doesn't re-ho
 trajectory telemetry. REMAINING: (1) grasp is marginal/not yet reliable
 (2 of 4 runs held); (2) place blocked — arm carries only to y≈0.21, but a basket there collides
 with the grasp and one at y=0.34 is out of carry reach (tiny ~10–15 cm workspace). 4-flag verifier
-in `pipeline/ego2g1.py`. Probes: `probe.py`/`probe_height.py`/`probe_gc.py`/`probe_place.py`.
-Pink IK / cuRobo / GraspGen remain blocked — native DiffIK only. Full data in `diagnostics/REPORT.md`.
+in `pipeline/ego2g1.py`; probes in `diagnostics/probe*.py`. Pink IK / cuRobo / GraspGen remain
+blocked — native DiffIK only. Full data in `diagnostics/REPORT.md`.

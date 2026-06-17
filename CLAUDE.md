@@ -40,6 +40,65 @@ it: `video → perception → retarget → IK → sim scene → RunResult`.
   - **Rollback snapshot:** `~/dimenso_isaac_sim_freeze_backup.txt`
     (`pip install -r` it into `isaac_sim` to restore the pre-dimenso state).
 
+## Method stack (VLM + code-as-policy path)
+
+The default method path. Four layers, all living in the `isaac_sim` conda env:
+
+```
+Gemini Robotics-ER (VLM brain: video → plan + points)
+  → CapX (code-as-policy orchestration)
+  → GraspGen / GraspGenX (6-DoF grasp generation)
+  → cuRobo (GPU motion planning)
+  → Isaac Lab (the G1 scene)
+```
+
+### Install state (as of the install-stack PR)
+- **Gemini SDK** — `google-genai==2.8.0` ✓ installed & verified (import + model-name in
+  a request config, no paid call). Also added `python-dotenv`.
+- **GraspGen** (`grasp_gen==1.0.0`) and **GraspGenX** (`graspgenx==1.0.0`) — installed
+  **`--no-deps`** and import OK. We did **NOT** install their deps: GraspGen pins
+  `torch==2.1.0` (cu121) and GraspGenX `torch>=2.1,<2.7` — installing those would
+  **downgrade torch 2.12/cu128 and break Blackwell + isaaclab**. So the Python packages
+  are present but their full dep tree is intentionally not installed.
+- **cuRobo** (`nvidia-curobo==0.0.0`) — pip-installs `-e . --no-deps` (top-level import
+  OK); it JIT-compiles CUDA kernels lazily at first use.
+
+### ⚠️ Blackwell CUDA-toolchain blocker (open)
+- **PTv3 backbone does not run on cu128/Blackwell** → use the **PointNet++** backbone for
+  GraspGen (per its README).
+- BUT **PointNet++'s CUDA op (`pointnet2_ops`) cannot be compiled here**, and cuRobo's
+  kernels hit the same wall: the only `nvcc` is **CUDA 11.5** (`/usr/bin/nvcc`), while
+  torch is **cu128**, so torch's `cpp_extension` aborts with
+  `RuntimeError: detected CUDA version (11.5) mismatches ... PyTorch (12.8)`. CUDA 11.5
+  also can't target `sm_120`. The pip `nvidia-cuda-nvcc-cu12` wheel ships only `ptxas`,
+  not the `nvcc` front-end. **Building any CUDA extension for Blackwell is blocked until
+  a full CUDA 12.8 toolkit (nvcc) is installed.** Decision pending.
+
+### Gripper configs available (answers the open gripper question)
+- **GraspGen `config/grippers`**: `franka_panda`, `robotiq_2f_85`, `robotiq_2f_140`
+  (all **parallel/pinch**) + `single_suction_cup_30mm`. **No G1/Dex3 config.**
+- **GraspGenX `assets/proc_grippers`**: procedural `parallel_2f_*`, `revolute_2f_*`,
+  `revolute_3f_*` (three-finger). Unitree G1 appears only as *example object figures*,
+  not a shipped gripper config. GraspGenX has tools to author custom grippers
+  (`gripper_config_wizard.py`, `build_ur10e_gripper.py`, `vis_gripper_desc.py`).
+- **Open decision (unchanged):** parallel/pinch gripper → GraspGen direct (works
+  out-of-box); **G1 Dex3 three-finger → no shipped config** — would need pinch-mode on a
+  parallel primitive, or author a custom dexterous gripper description via GraspGenX.
+
+### Cost / licensing
+- **Gemini**: free tier available (key in `.env`, see below). NVIDIA tools
+  (GraspGen, GraspGenX, cuRobo) are **open-source**.
+
+### API key handling
+- `GEMINI_API_KEY` lives in **`dimenso/.env`** (gitignored — never committed). Copy
+  `.env.example` → `.env` and fill it. Loaded at runtime via `python-dotenv`
+  (`load_dotenv()`). Do **not** hardcode or commit the key.
+
+### Heavy repos
+- `third_party/GraspGen`, `third_party/GraspGenX`, `third_party/curobo` — **gitignored**
+  (cloned locally, not committed). Freeze backup for this stack:
+  `~/dimenso_stack_freeze_backup.txt`.
+
 ## The G1 task action / observation interface
 
 Extracted from the upstream env we copied,
